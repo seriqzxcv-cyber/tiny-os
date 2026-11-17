@@ -152,7 +152,7 @@ static void cstr_copy(char *dst, const char *src, int sz) {
 static void page_home(void) {
     static const char home[] =
         "<h1>TINY BROWSER</h1>"
-        "<p>Real internet inside a 12 KB operating system.</p>"
+        "<p>Real internet inside TINY OS.</p>"
         "<p>Type an address and press ENTER, or click a link.</p>"
         "<p><a href=\"http://example.com\">Open example.com</a></p>"
         "<p><a href=\"http://info.cern.ch\">The first website ever</a></p>"
