@@ -33,6 +33,11 @@ Add bootable ISO and working internet browser
   HTML renderer; fetch real pages over COM1 via nethelper.py
 - Fix mouse lag: redraw only two 12x16 rectangles on cursor movement
 - Extend font to 83 glyphs, polish window chrome, icons and live RTC clock
+
+v1.1:
+- Add start menu, real minimize, double-click maximize, click-to-raise
+- Add 5 themes, CMOS date, mouse wheel, link hover
+- Add HOME button, search queries, page title and status line
 ```
 
 Короткий вариант:
@@ -44,10 +49,10 @@ Add bootable ISO, internet browser and lag-free mouse rendering
 ## 4. Release notes (для Releases)
 
 ~~~markdown
-## TINY OS v1.0 — первая публичная сборка
+## TINY OS v1.1 — тотальное обновление
 
 Самая маленькая графическая ОС, которую можно загрузить в QEMU.
-Образ диска — всего 21 КБ.
+Образ диска — всего 28 КБ.
 
 ### Что нового
 - **TINY BROWSER**: адресная строка, история (BACK/GO), кликабельные ссылки,
@@ -56,10 +61,13 @@ Add bootable ISO, internet browser and lag-free mouse rendering
 - **Загрузочный ISO**: `tinyos.iso` грузится через `qemu-system-i386 -cdrom`.
 - **Мышь без лагов**: при движении перерисовываются только два маленьких
   прямоугольника, а не весь экран.
-- **Графика**: градиенты, скруглённые рамки окон, иконки, live-часы из CMOS.
+- **Графика**: градиенты, скруглённые рамки окон, иконки, дата и время из CMOS.
+- **v1.1**: меню «Пуск», настоящая минимизация, двойной клик по заголовку,
+  клик по неактивному окну, 5 тем, колесо мыши, подсветка ссылок,
+  кнопка HOME, поиск по запросу, `<title>` в строке состояния.
 
 ### Файлы
-- `os.img` — загрузочный raw-образ диска (21 КБ)
+- `os.img` — загрузочный raw-образ диска (28 КБ)
 - `tinyos.iso` — загрузочный ISO (El Torito, no emulation)
 - `run.sh` — запуск с интернетом (поднимает `nethelper.py`)
 
@@ -197,7 +205,7 @@ git push -u origin main
 ### Шаг 8. Создайте Release и приложите образы
 
 1. Нажмите **Releases → Create a new release**.
-2. Tag: `v1.0`, Title: `TINY OS v1.0`.
+2. Tag: `v1.1`, Title: `TINY OS v1.1`.
 3. В поле описания вставьте release notes из раздела 4.
 4. Перетащите вниз в блок **Attach binaries**: `tinyos.iso`, `os.img`, `screenshot.png`.
 5. Нажмите **Publish release**.

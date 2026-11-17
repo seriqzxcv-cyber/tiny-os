@@ -42,6 +42,9 @@ static inline u32 lerp(u32 a, u32 b, int t) {
 #define PAGE_BUF ((char *)0xA00000)
 #define PAGE_MAX 60000
 
+static int starts_ci(const char *s, const char *p);
+static void cstr_copy(char *dst, const char *src, int sz);
+
 static u32 page_len = 0;
 static int page_lines = 0;
 static int page_scroll = 0;
@@ -49,11 +52,29 @@ static char page_url[200] = "http://example.com";
 static char prev_url[200];
 static int prev_valid = 0;
 static int url_len = 0;
+static char page_title[96] = "TINY BROWSER";
+static char status_msg[80] = "READY";
 
-typedef struct { int x, y, w, h; char url[200]; } Link;
+typedef struct {
+    int x, y, w, h;
+    char url[200];
+    char label[64];
+} Link;
 #define MAX_LINKS 64
 static Link links[MAX_LINKS];
 static int nlinks = 0;
+
+/* Start menu: 8 = OS button, 200..205 = items, 300.. = page links */
+#define MENU_X 8
+#define MENU_W 232
+#define MENU_H 152
+#define MENU_ITEMS 6
+static int menu_open = 0;
+static int mouse4 = 0;                 /* Intellimouse: 4-byte packets */
+static u32 ticks = 0;
+static int last_click_sec = -1;
+static int last_click_win = -1;
+static int dd_day = 1, dd_month = 1, dd_year = 2026;
 
 static void serial_init(void) {
     outb(0x3FB, 0x80);            /* DLAB on */
@@ -92,6 +113,8 @@ static void page_offline(void) {
     PAGE_BUF[i] = 0;
     page_len = (u32)i;
     page_scroll = 0;
+    cstr_copy(page_title, "OFFLINE", sizeof(page_title));
+    cstr_copy(status_msg, "HOST HELPER NOT RUNNING", sizeof(status_msg));
 }
 
 static int fetch_page(const char *url) {
@@ -115,10 +138,16 @@ static int fetch_page(const char *url) {
     buf[i] = 0;
     page_len = i;
     page_scroll = 0;
+    cstr_copy(status_msg, "LOADED", sizeof(status_msg));
     return i > 0;
 }
 
 static int cstrlen(const char *s) { int n = 0; while (s[n]) n++; return n; }
+static void cstr_copy(char *dst, const char *src, int sz) {
+    int i = 0;
+    while (src[i] && i < sz - 1) { dst[i] = src[i]; i++; }
+    dst[i] = 0;
+}
 
 static void page_home(void) {
     static const char home[] =
@@ -133,6 +162,8 @@ static void page_home(void) {
     PAGE_BUF[i] = 0;
     page_len = (u32)i;
     page_scroll = 0;
+    cstr_copy(page_title, "TINY BROWSER", sizeof(page_title));
+    cstr_copy(status_msg, "START PAGE", sizeof(status_msg));
 }
 
 static void url_set(const char *s) {
@@ -142,21 +173,57 @@ static void url_set(const char *s) {
     url_len = i;
 }
 
+/* Accept bare domains and plain search terms in the address bar. */
+static int prepare_url(const char *u, char *out, int sz) {
+    int i = 0, j = 0, has_scheme = starts_ci(u, "http://") || starts_ci(u, "https://");
+    int has_dot = 0, has_space = 0;
+    while (u[i]) {
+        if (u[i] == '.') has_dot = 1;
+        if (u[i] == ' ') has_space = 1;
+        i++;
+    }
+    i = 0;
+    if (!has_scheme && !has_dot) {
+        const char *q = "https://lite.duckduckgo.com/lite/?q=";
+        while (q[j] && j < sz - 1) { out[j] = q[j]; j++; }
+        while (u[i] && j < sz - 1) {
+            out[j++] = (u[i] == ' ') ? '+' : u[i];
+            i++;
+        }
+    } else {
+        if (!has_scheme) {
+            out[j++] = 'h'; out[j++] = 't'; out[j++] = 't'; out[j++] = 'p';
+            out[j++] = ':'; out[j++] = '/'; out[j++] = '/';
+        }
+        while (u[i] && j < sz - 1) out[j++] = u[i++];
+    }
+    out[j] = 0;
+    return has_space;
+}
+
 static void navigate(const char *u) {
     int i;
+    char full[200];
     if (page_url[0]) {
         for (i = 0; page_url[i]; i++) prev_url[i] = page_url[i];
         prev_url[i] = 0;
         prev_valid = 1;
     }
-    url_set(u);
+    prepare_url(u, full, sizeof(full));
+    url_set(full);
+    page_title[0] = 0;
     fetch_page(page_url);
+    if (!page_title[0]) cstr_copy(page_title, "TINY BROWSER", sizeof(page_title));
+    cstr_copy(status_msg, page_url, sizeof(status_msg));
 }
 
 static void go_back(void) {
     if (!prev_valid) return;
     url_set(prev_url);
+    page_title[0] = 0;
     fetch_page(page_url);
+    if (!page_title[0]) cstr_copy(page_title, "TINY BROWSER", sizeof(page_title));
+    cstr_copy(status_msg, prev_url, sizeof(status_msg));
     prev_valid = 0;
 }
 
@@ -180,6 +247,13 @@ static void resolve_url(const char *rel, char *out, int sz) {
         return;
     }
     if (starts_ci(rel, "http://") || starts_ci(rel, "https://")) {
+        while (rel[i] && j < sz - 1) out[j++] = rel[i++];
+        out[j] = 0;
+        return;
+    }
+    if (rel[0] == '/' && rel[1] == '/') {          /* protocol-relative */
+        while (page_url[p] && page_url[p] != ':') out[j++] = page_url[p++];
+        if (j > 0 && j < sz - 1) out[j++] = ':';
         while (rel[i] && j < sz - 1) out[j++] = rel[i++];
         out[j] = 0;
         return;
@@ -348,17 +422,17 @@ typedef struct {
     int x, y, w, h;
     int ox, oy, ow, oh;
     const char *title;
-    u8 open, active, maximized;
+    u8 open, active, maximized, minimized;
     int z;
     u32 body;
     int kind;                    /* 1 = browser */
 } Win;
 
 static Win wins[4] = {
-    {  90,  92, 440, 255, 0, 0, 0, 0, "WELCOME TO TINY OS", 1, 1, 0, 1, RGB(14, 34, 66),  0 },
-    { 370, 202, 410, 255, 0, 0, 0, 0, "SYSTEM INFO",       1, 0, 0, 2, RGB(26, 29, 38),  0 },
-    { 220, 345, 390, 180, 0, 0, 0, 0, "NOTES",             1, 0, 0, 3, RGB(16, 48, 38),  0 },
-    {  70,  60, 760, 560, 0, 0, 0, 0, "TINY BROWSER",       1, 0, 0, 4, RGB(16, 20, 30),  1 },
+    {  90,  92, 440, 255, 0, 0, 0, 0, "WELCOME TO TINY OS", 1, 1, 0, 0, 1, RGB(14, 34, 66),  0 },
+    { 370, 202, 410, 255, 0, 0, 0, 0, "SYSTEM INFO",       1, 0, 0, 0, 2, RGB(26, 29, 38),  0 },
+    { 220, 345, 390, 180, 0, 0, 0, 0, "NOTES",             1, 0, 0, 0, 3, RGB(16, 48, 38),  0 },
+    {  70,  60, 760, 560, 0, 0, 0, 0, "TINY BROWSER",       1, 0, 0, 0, 4, RGB(16, 20, 30),  1 },
 };
 static int top_z = 4;
 static const char *task_label[4] = { "WELCOME", "SYSTEM", "NOTES", "BROWSER" };
@@ -366,8 +440,16 @@ static const u32 task_color[4] = {
     RGB(60, 140, 230), RGB(150, 130, 220), RGB(70, 190, 130), RGB(230, 150, 60)
 };
 
-static const u32 wall_top[3] = {
-    RGB(20, 46, 96), RGB(66, 18, 74), RGB(14, 70, 56)
+static const u32 wall_top[5] = {
+    RGB(20, 46, 96), RGB(66, 18, 74), RGB(14, 70, 56),
+    RGB(72, 42, 20), RGB(42, 26, 78)
+};
+static const u32 accent[5] = {
+    RGB(60, 140, 230), RGB(205, 110, 190), RGB(70, 190, 130),
+    RGB(230, 155, 70), RGB(150, 130, 235)
+};
+static const char *theme_name[5] = {
+    "OCEAN", "SUNSET", "FOREST", "AMBER", "NEBULA"
 };
 static int wall = 0;
 
@@ -415,15 +497,38 @@ static void draw_button(int x, int y, u32 normal, u32 hover, char glyph, int hot
 }
 
 /* ---------------------- hover: cheap partial updates -------------------- */
+static void menu_item_rect(int idx, int *x, int *y, int *w, int *h) {
+    *x = MENU_X + 6;
+    *y = (int)screen_h - 40 - MENU_H + 8 + idx * 22;
+    *w = MENU_W - 12;
+    *h = 20;
+}
+
 static int hover_rect(int id, int *x, int *y, int *w, int *h) {
     if (id >= 100 && id < 104) {
         int i = id - 100;
         *x = 108 + i * 124; *y = (int)screen_h - 33; *w = 116; *h = 26;
         return 1;
     }
+    if (id == 104) {
+        *x = MENU_X; *y = (int)screen_h - 33; *w = 86; *h = 26;
+        return 1;
+    }
+    if (id >= 200 && id < 200 + MENU_ITEMS) {
+        if (!menu_open) return 0;
+        menu_item_rect(id - 200, x, y, w, h);
+        return 1;
+    }
+    if (id >= 300 && id < 300 + MAX_LINKS) {
+        int k = id - 300;
+        if (k >= nlinks || !wins[3].open || wins[3].minimized) return 0;
+        *x = links[k].x - 2; *y = links[k].y - 2;
+        *w = links[k].w + 4; *h = 13;
+        return 1;
+    }
     if (id >= 0 && id < 16) {
         int i = id / 4, b = id % 4;
-        if (b == 0 || i >= 4 || !wins[i].open) return 0;
+        if (b == 0 || i >= 4 || !wins[i].open || wins[i].minimized) return 0;
         *x = wins[i].x + wins[i].w - (b == 1 ? 68 : b == 2 ? 46 : 24);
         *y = wins[i].y + 4; *w = 16; *h = 16;
         return 1;
@@ -432,6 +537,37 @@ static int hover_rect(int id, int *x, int *y, int *w, int *h) {
 }
 
 static void draw_hover_item(int id, int hot) {
+    if (id == 104) {
+        int bx = MENU_X, by = (int)screen_h - 33;
+        rect(bx, by, 86, 26, hot ? lerp(accent[wall], RGB(255,255,255), 30)
+                                  : accent[wall]);
+        frame(bx, by, 86, 26, RGB(155, 195, 240));
+        draw_text2(bx + 20, by + 7, "OS", RGB(255, 255, 255));
+        return;
+    }
+    if (id >= 200 && id < 200 + MENU_ITEMS) {
+        int i = id - 200, x, y, w, h;
+        static const char *names[MENU_ITEMS] = {
+            "WELCOME", "SYSTEM", "NOTES", "BROWSER", "THEME", "CLOSE MENU"
+        };
+        if (!menu_open) return;
+        menu_item_rect(i, &x, &y, &w, &h);
+        rect(x, y, w, h, hot ? lerp(accent[wall], RGB(255,255,255), 22)
+                             : RGB(34, 39, 52));
+        if (i < 4) rect(x + 3, y + 5, 4, 10, task_color[i]);
+        draw_text(x + 14, y + 6, names[i],
+                  hot ? RGB(255,255,255) : RGB(205, 215, 232));
+        return;
+    }
+    if (id >= 300 && id < 300 + MAX_LINKS) {
+        int k = id - 300;
+        if (k >= nlinks) return;
+        rect(links[k].x - 2, links[k].y - 2,
+             links[k].w + 4, 12, hot ? RGB(255, 235, 160) : RGB(248, 249, 251));
+        draw_text_n(links[k].x, links[k].y, links[k].label, 64,
+                    hot ? RGB(120, 40, 20) : RGB(28, 92, 205));
+        return;
+    }
     if (id >= 100 && id < 104) {
         int i = id - 100, bx = 108 + i * 124, by = (int)screen_h - 33;
         rect(bx, by, 116, 26,
@@ -525,6 +661,22 @@ static const char *skip_to_close(const char *p, const char *name, int nlen) {
     return p;
 }
 
+/* Grab the <title> text for the browser status line. */
+static void extract_title(const char *p, const char *name, int nlen) {
+    int i = 0;
+    while (*p) {
+        if (*p == '<' && p[1] == '/') {
+            const char *q = p + 2;
+            int k = 0;
+            while (q[k] && q[k] != '>' && q[k] != ' ' && q[k] != '\n') k++;
+            if (tag_eq(q, k, name, nlen)) break;
+        }
+        if (i < 95 && *p >= 32) page_title[i++] = *p;
+        p++;
+    }
+    page_title[i] = 0;
+}
+
 static int find_attr(const char *s, const char *e, const char *name, char *out, int sz) {
     while (s < e) {
         const char *n;
@@ -559,6 +711,8 @@ typedef struct {
     int px, py, pw, ph, maxcol, line, col, scroll;
     u32 color, link_color;
     int link, link_x, link_y;
+    char link_label[64];
+    int link_llen;
 } Rctx;
 
 static void r_emit(Rctx *c, char ch) {
@@ -568,8 +722,10 @@ static void r_emit(Rctx *c, char ch) {
     sy = c->py + c->line * 10 - c->scroll * 10;
     if (sy >= c->py && sy + 8 <= c->py + c->ph && ch >= 32)
         draw_char(sx, sy, ch, c->color);
-    if (c->link && sy >= c->py && sy + 8 <= c->py + c->ph)
+    if (c->link && sy >= c->py && sy + 8 <= c->py + c->ph) {
         rect(sx, sy + 7, 6, 1, c->link_color);
+        if (c->link_llen < 63 && ch >= 32) c->link_label[c->link_llen++] = ch;
+    }
     c->col++;
 }
 
@@ -588,6 +744,7 @@ static void render_html(int px, int py, int pw, int ph) {
     c.color = RGB(35, 40, 52);
     c.link_color = RGB(28, 92, 205);
     c.link = 0; c.link_x = px; c.link_y = py;
+    c.link_label[0] = 0; c.link_llen = 0;
     nlinks = 0;
 
     while (*p) {
@@ -627,8 +784,13 @@ static void render_html(int px, int py, int pw, int ph) {
             gt = q;
             while (*gt && *gt != '>') gt++;
 
+            if (!closing && ci_eq(ns, nl, "title")) {
+                extract_title(*gt ? gt + 1 : gt, ns, nl);
+                p = skip_to_close(*gt ? gt + 1 : gt, ns, nl);
+                continue;
+            }
             if (!closing && (ci_eq(ns, nl, "script") || ci_eq(ns, nl, "style") ||
-                             ci_eq(ns, nl, "head")   || ci_eq(ns, nl, "title") ||
+                             ci_eq(ns, nl, "head")   ||
                              ci_eq(ns, nl, "noscript") || ci_eq(ns, nl, "iframe"))) {
                 p = skip_to_close(*gt ? gt + 1 : gt, ns, nl);
                 continue;
@@ -654,6 +816,8 @@ static void render_html(int px, int py, int pw, int ph) {
                         c.link = 1;
                         c.link_x = c.px + c.col * 6;
                         c.link_y = c.py + c.line * 10 - c.scroll * 10;
+                        c.link_label[0] = 0;
+                        c.link_llen = 0;
                         c.color = c.link_color;
                     }
                 }
@@ -667,10 +831,13 @@ static void render_html(int px, int py, int pw, int ph) {
                             links[nlinks].y = c.link_y;
                             links[nlinks].w = w;
                             links[nlinks].h = 9;
+                            cstr_copy(links[nlinks].label, c.link_label,
+                                      sizeof(links[nlinks].label));
                             resolve_url(cur_url, links[nlinks].url, 200);
                             nlinks++;
                         }
-                        r_emit(&c, ']');
+                        c.link_llen = 0;
+                        c.link_label[0] = 0;
                         c.link = 0;
                         c.color = RGB(35, 40, 52);
                     }
@@ -695,8 +862,9 @@ static void render_html(int px, int py, int pw, int ph) {
 /* ------------------------- window contents ------------------------------ */
 static void draw_browser(Win *w) {
     int bx = w->x + 8, by = w->y + 30;
-    int ax = w->x + 58, aw = w->w - 150;
+    int ax = w->x + 58, aw = w->w - 190;
     int gx = w->x + w->w - 86;
+    int hx = w->x + w->w - 46;
     int px = w->x + 8, py = w->y + 58;
     int pw = w->w - 16, ph = w->h - 90;
 
@@ -721,6 +889,11 @@ static void draw_browser(Win *w) {
     frame(gx, by, 34, 20, RGB(110, 210, 160));
     draw_text_n(gx + 10, by + 6, "GO", 4, RGB(255, 255, 255));
 
+    /* HOME */
+    rect(hx, by, 38, 20, RGB(70, 78, 110));
+    frame(hx, by, 38, 20, RGB(145, 160, 200));
+    draw_text_n(hx + 5, by + 6, "HOME", 5, RGB(235, 240, 255));
+
     /* page */
     rect(px, py, pw, ph, RGB(248, 249, 251));
     rect(px, py, pw, 1, RGB(200, 208, 220));
@@ -741,6 +914,8 @@ static void window_content(Win *w) {
         draw_text(x, y + 76, "DRAG TITLE BAR TO MOVE", RGB(165, 190, 225));
         draw_text(x, y + 92, "F1-F4 WINDOWS  F5 BROWSER", RGB(165, 190, 225));
         draw_text(x, y + 108,"ENTER: FETCH PAGE  BACK: HISTORY", RGB(165, 190, 225));
+        draw_text(x, y + 124,"DOUBLE-CLICK TITLE: MAXIMIZE", RGB(165, 190, 225));
+        draw_text(x, y + 140,"OS BUTTON: START MENU", RGB(165, 190, 225));
     } else if (w == &wins[1]) {
         draw_text(x, y,      "SYSTEM INFORMATION", RGB(150, 205, 255));
         rect(x, y + 18, 320, 2, RGB(70, 80, 100));
@@ -752,10 +927,14 @@ static void window_content(Win *w) {
         draw_text(x, y + 80, "INPUT: PS/2 MOUSE + KBD", RGB(210, 215, 225));
         draw_text(x, y + 96, "KERNEL: 32-BIT PROTECTED", RGB(210, 215, 225));
         draw_text(x, y + 112,"NET: COM1 -> HOST HELPER", RGB(210, 215, 225));
-        draw_text(x, y + 134,"MOUSE X:", RGB(140, 170, 210));
-        draw_num(x + 72, y + 134, mx, RGB(255, 215, 120));
-        draw_text(x + 130, y + 134,"Y:", RGB(140, 170, 210));
-        draw_num(x + 148, y + 134, my, RGB(255, 215, 120));
+        draw_text(x, y + 128,"THEME: ", RGB(140, 170, 210));
+        draw_text(x + 48, y + 128, theme_name[wall], RGB(255, 215, 120));
+        draw_text(x, y + 148,"MOUSE X:", RGB(140, 170, 210));
+        draw_num(x + 72, y + 148, mx, RGB(255, 215, 120));
+        draw_text(x + 130, y + 148,"Y:", RGB(140, 170, 210));
+        draw_num(x + 148, y + 148, my, RGB(255, 215, 120));
+        draw_text(x, y + 168,"WHEEL: ", RGB(140, 170, 210));
+        draw_text(x + 48, y + 168, mouse4 ? "ENABLED" : "OFF", RGB(255, 215, 120));
     } else {
         draw_text(x, y, "TYPE WITH THE KEYBOARD:", RGB(150, 230, 180));
         rect(x, y + 18, 320, 2, RGB(60, 120, 90));
@@ -766,12 +945,14 @@ static void window_content(Win *w) {
 
     rect(w->x + 5, sy - 4, w->w - 10, 1, RGB(70, 85, 110));
     if (w->kind == 1) {
-        draw_text(w->x + 10, sy, "TINY BROWSER", RGB(130, 170, 215));
+        draw_text_n(w->x + 10, sy, page_title, 24, RGB(150, 190, 230));
+        draw_text_n(w->x + 170, sy, status_msg, 30, RGB(175, 205, 235));
         draw_num(w->x + w->w - 150, sy, (int)page_len, RGB(155, 210, 180));
         draw_text(w->x + w->w - 100, sy, "BYTES", RGB(120, 170, 150));
     } else {
         draw_text(w->x + 10, sy, "TINY OS 1.0", RGB(120, 150, 185));
-        draw_text(w->x + w->w - 90, sy, "READY", RGB(120, 200, 150));
+        draw_text(w->x + w->w - 132, sy, theme_name[wall], RGB(160, 190, 225));
+        draw_text(w->x + w->w - 70, sy, "READY", RGB(120, 200, 150));
     }
 }
 
@@ -788,7 +969,7 @@ static void draw_window(Win *w) {
 
     for (row = 0; row < 23; row++) {
         u32 c = w->active
-            ? lerp(RGB(28, 122, 226), RGB(12, 68, 152), row * 100 / 23)
+            ? lerp(accent[wall], RGB(8, 16, 32), row * 100 / 23)
             : lerp(RGB(92, 100, 122), RGB(52, 58, 76), row * 100 / 23);
         rect(w->x + 1, w->y + 1 + row, w->w - 2, 1, c);
     }
@@ -806,7 +987,7 @@ static void draw_window(Win *w) {
 
     rect(w->x + 1, w->y + 24, w->w - 2, w->h - 25, w->body);
     rounded_frame(w->x, w->y, w->w, w->h, 5,
-                  w->active ? RGB(140, 185, 235) : RGB(90, 100, 122));
+                  w->active ? accent[wall] : RGB(90, 100, 122));
     window_content(w);
 }
 
@@ -833,27 +1014,46 @@ static void draw_all(void) {
     rect((int)screen_w / 2 - 130, 82, 260, 2, RGB(70, 130, 200));
 
     rect(0, (int)screen_h - 40, (int)screen_w, 40, RGB(24, 27, 34));
-    rect(0, (int)screen_h - 40, (int)screen_w, 2, RGB(70, 120, 190));
-    rect(8, (int)screen_h - 33, 86, 26, RGB(36, 116, 206));
-    frame(8, (int)screen_h - 33, 86, 26, RGB(130, 185, 240));
-    draw_text2(20, (int)screen_h - 29, "OS", RGB(255, 255, 255));
+    rect(0, (int)screen_h - 40, (int)screen_w, 2, accent[wall]);
+    draw_hover_item(104, 0);
 
     for (i = 0; i < 4; i++)
         draw_hover_item(100 + i, 0);
 
     rect((int)screen_w - 132, (int)screen_h - 33, 124, 26, RGB(32, 36, 46));
     frame((int)screen_w - 132, (int)screen_h - 33, 124, 26, RGB(80, 90, 110));
-    draw_text((int)screen_w - 124, (int)screen_h - 29, "TIME", RGB(130, 160, 195));
-    draw_num((int)screen_w - 82, (int)screen_h - 29, hh, RGB(255, 220, 140));
-    draw_char((int)screen_w - 58, (int)screen_h - 29, ':', RGB(255, 220, 140));
-    draw_num((int)screen_w - 52, (int)screen_h - 29, mm, RGB(255, 220, 140));
-    draw_char((int)screen_w - 28, (int)screen_h - 29, ':', RGB(255, 220, 140));
-    draw_num((int)screen_w - 22, (int)screen_h - 29, ss, RGB(255, 220, 140));
+    draw_num((int)screen_w - 124, (int)screen_h - 29, dd_day, RGB(160, 195, 230));
+    draw_char((int)screen_w - 108, (int)screen_h - 29, '.', RGB(160, 195, 230));
+    draw_num((int)screen_w - 102, (int)screen_h - 29, dd_month, RGB(160, 195, 230));
+    draw_num((int)screen_w - 78, (int)screen_h - 29, hh, RGB(255, 220, 140));
+    draw_char((int)screen_w - 54, (int)screen_h - 29, ':', RGB(255, 220, 140));
+    draw_num((int)screen_w - 48, (int)screen_h - 29, mm, RGB(255, 220, 140));
+    draw_char((int)screen_w - 24, (int)screen_h - 29, ':', RGB(255, 220, 140));
+    draw_num((int)screen_w - 18, (int)screen_h - 29, ss, RGB(255, 220, 140));
 
     sort_windows(order);
     for (i = 0; i < 4; i++)
-        if (order[i]->open)
+        if (order[i]->open && !order[i]->minimized)
             draw_window(order[i]);
+
+    if (menu_open) {
+        int my0 = (int)screen_h - 40 - MENU_H;
+        rect(MENU_X + 4, my0 + 4, MENU_W, MENU_H, RGB(0, 0, 0));
+        rect(MENU_X, my0, MENU_W, MENU_H, RGB(26, 30, 40));
+        frame(MENU_X, my0, MENU_W, MENU_H, RGB(120, 140, 175));
+        rect(MENU_X, my0, MENU_W, 18, accent[wall]);
+        draw_text(MENU_X + 8, my0 + 5, "TINY OS MENU", RGB(255, 255, 255));
+        for (i = 0; i < MENU_ITEMS; i++) {
+            int x, y, w, h;
+            menu_item_rect(i, &x, &y, &w, &h);
+            rect(x, y, w, h, RGB(34, 39, 52));
+            if (i < 4) rect(x + 3, y + 5, 4, 10, task_color[i]);
+            draw_text(x + 14, y + 6,
+                      i == 0 ? "WELCOME" : i == 1 ? "SYSTEM" : i == 2 ? "NOTES" :
+                      i == 3 ? "BROWSER" : i == 4 ? "CHANGE THEME" : "CLOSE MENU",
+                      RGB(205, 215, 232));
+        }
+    }
 }
 
 static void compose_full(void) {
@@ -892,17 +1092,48 @@ static void activate(int i) {
     for (k = 0; k < 4; k++) wins[k].active = 0;
     wins[i].active = 1;
     wins[i].open = 1;
+    wins[i].minimized = 0;
     wins[i].z = ++top_z;
 }
 
-static int compute_hover(void) {
+/* Topmost visible window under a point, or -1. */
+static int window_at(int x, int y) {
     Win *order[4];
     int i;
     sort_windows(order);
     for (i = 3; i >= 0; i--) {
         Win *w = order[i];
+        if (!w->open || w->minimized) continue;
+        if (x >= w->x && x < w->x + w->w && y >= w->y && y < w->y + w->h)
+            return (int)(w - wins);
+    }
+    return -1;
+}
+
+static int compute_hover(void) {
+    Win *order[4];
+    int i;
+    if (menu_open && mx >= MENU_X && mx < MENU_X + MENU_W &&
+        my >= (int)screen_h - 40 - MENU_H && my < (int)screen_h - 40) {
+        for (i = 0; i < MENU_ITEMS; i++) {
+            int x, y, w, h;
+            menu_item_rect(i, &x, &y, &w, &h);
+            if (mx >= x && mx < x + w && my >= y && my < y + h) return 200 + i;
+        }
+        return -1;
+    }
+    if (mx >= MENU_X && mx < MENU_X + 86 &&
+        my >= (int)screen_h - 33 && my < (int)screen_h - 7) return 104;
+    if (wins[3].open && !wins[3].minimized && window_at(mx, my) == 3) {
+        for (i = 0; i < nlinks; i++)
+            if (mx >= links[i].x - 2 && mx < links[i].x + links[i].w + 2 &&
+                my >= links[i].y - 2 && my < links[i].y + 11) return 300 + i;
+    }
+    sort_windows(order);
+    for (i = 3; i >= 0; i--) {
+        Win *w = order[i];
         int idx, cx, ax, nx, cy;
-        if (!w->open) continue;
+        if (!w->open || w->minimized) continue;
         idx = (int)(w - wins);
         cx = w->x + w->w - 24;
         ax = w->x + w->w - 46;
@@ -935,6 +1166,20 @@ static void mouse_packet(u8 *p) {
     if (mx > (int)screen_w - CUR_W) mx = (int)screen_w - CUR_W;
     if (my > (int)screen_h - CUR_H) my = (int)screen_h - CUR_H;
 
+    if (mouse4 && p[3]) {
+        int step = (int)(signed char)p[3];
+        int visible = (wins[3].h - 98) / 10;
+        int maxs = page_lines - visible;
+        if (maxs < 0) maxs = 0;
+        if (wins[3].open && !wins[3].minimized && window_at(mx, my) == 3) {
+            page_scroll -= step * 3;
+            if (page_scroll < 0) page_scroll = 0;
+            if (page_scroll > maxs) page_scroll = maxs;
+            cstr_copy(status_msg, "SCROLL", sizeof(status_msg));
+            scene_dirty = 1;
+        }
+    }
+
     h = compute_hover();
     if (h != hover_id) {
         int old = hover_id;
@@ -944,6 +1189,33 @@ static void mouse_packet(u8 *p) {
     cursor_dirty = 1;
 
     if (nb && !mb) {
+        /* Start menu first - it floats above the desktop. */
+        if (menu_open) {
+            int inside = mx >= MENU_X && mx < MENU_X + MENU_W &&
+                         my >= (int)screen_h - 40 - MENU_H && my < (int)screen_h - 40;
+            if (inside) {
+                for (i = 0; i < MENU_ITEMS; i++) {
+                    int x, y, w, h;
+                    menu_item_rect(i, &x, &y, &w, &h);
+                    if (mx >= x && mx < x + w && my >= y && my < y + h) {
+                        if (i < 4) activate(i);
+                        else if (i == 4) { wall = (wall + 1) % 5; cstr_copy(status_msg, theme_name[wall], sizeof(status_msg)); }
+                        menu_open = 0;
+                        scene_dirty = 1;
+                        goto after_click;
+                    }
+                }
+            } else {
+                menu_open = 0;
+                scene_dirty = 1;
+            }
+        }
+        if (mx >= MENU_X && mx < MENU_X + 86 &&
+            my >= (int)screen_h - 33 && my < (int)screen_h - 7) {
+            menu_open = !menu_open;
+            scene_dirty = 1;
+            goto after_click;
+        }
         sort_windows(order);
         for (i = 3; i >= 0; i--) {
             Win *w = order[i];
@@ -952,7 +1224,7 @@ static void mouse_packet(u8 *p) {
             int ax = w->x + w->w - 46;
             int nx = w->x + w->w - 68;
             int cy = w->y + 4;
-            if (!w->open) continue;
+            if (!w->open || w->minimized) continue;
             if (mx >= cx && mx < cx + 16 && my >= cy && my < cy + 16) {
                 w->open = 0; w->active = 0; scene_dirty = 1;
                 goto after_click;
@@ -972,17 +1244,27 @@ static void mouse_packet(u8 *p) {
                 goto after_click;
             }
             if (mx >= nx && mx < nx + 16 && my >= cy && my < cy + 16) {
-                w->open = 0; w->active = 0; scene_dirty = 1;
+                w->minimized = 1; w->active = 0; scene_dirty = 1;
                 goto after_click;
             }
         }
 
-        /* browser: BACK / address / GO / links */
+        /* clicking an inactive window raises it */
+        {
+            int under = window_at(mx, my);
+            if (under >= 0 && !wins[under].active) {
+                activate(under);
+                scene_dirty = 1;
+            }
+        }
+
+        /* browser: BACK / address / GO / HOME / links */
         if (wins[3].open) {
             Win *b = &wins[3];
-            int by = b->y + 31;
-            int ax = b->x + 58, aw = b->w - 150;
+            int by = b->y + 30;
+            int ax = b->x + 58, aw = b->w - 190;
             int gx = b->x + b->w - 86;
+            int hx = b->x + b->w - 46;
             int px = b->x + 14, py = b->y + 66;
             int pw = b->w - 28, ph = b->h - 106;
             if (mx >= b->x + 8 && mx < b->x + 52 && my >= by && my < by + 20) {
@@ -995,6 +1277,10 @@ static void mouse_packet(u8 *p) {
             }
             if (mx >= gx && mx < gx + 34 && my >= by && my < by + 20) {
                 navigate(page_url); activate(3); scene_dirty = 1;
+                goto after_click;
+            }
+            if (mx >= hx && mx < hx + 38 && my >= by && my < by + 20) {
+                page_home(); activate(3); scene_dirty = 1;
                 goto after_click;
             }
             if (mx >= px && mx < px + pw && my >= py && my < py + ph) {
@@ -1016,10 +1302,32 @@ static void mouse_packet(u8 *p) {
 
         for (i = 3; i >= 0; i--) {
             Win *w = order[i];
-            if (w->open && mx >= w->x && mx < w->x + w->w &&
+            if (w->open && !w->minimized && mx >= w->x && mx < w->x + w->w &&
                 my >= w->y && my < w->y + 24) {
-                activate((int)(w - wins));
-                dragging = (int)(w - wins);
+                int idx2 = (int)(w - wins);
+                if (ss == last_click_sec && idx2 == last_click_win) {
+                    /* double click on title bar: toggle maximize */
+                    if (w->maximized) {
+                        w->x = w->ox; w->y = w->oy; w->w = w->ow; w->h = w->oh;
+                        w->maximized = 0;
+                    } else {
+                        w->ox = w->x; w->oy = w->y; w->ow = w->w; w->oh = w->h;
+                        w->x = 16; w->y = 16;
+                        w->w = (int)screen_w - 32;
+                        w->h = (int)screen_h - 72;
+                        w->maximized = 1;
+                    }
+                    last_click_sec = -1;
+                    activate(idx2);
+                    dragging = -1;
+                    scene_dirty = 1;
+                    goto after_click;
+                } else {
+                    last_click_sec = ss;
+                    last_click_win = idx2;
+                }
+                activate(idx2);
+                dragging = idx2;
                 drag_ox = mx - w->x;
                 drag_oy = my - w->y;
                 scene_dirty = 1;
@@ -1030,8 +1338,12 @@ static void mouse_packet(u8 *p) {
             int bx = 108;
             for (i = 0; i < 4; i++, bx += 124)
                 if (mx >= bx && mx < bx + 116) {
-                    if (wins[i].open) { wins[i].open = 0; wins[i].active = 0; }
-                    else activate(i);
+                    if (wins[i].open && wins[i].active && !wins[i].minimized) {
+                        wins[i].minimized = 1;
+                        wins[i].active = 0;
+                    } else {
+                        activate(i);
+                    }
                     scene_dirty = 1;
                     break;
                 }
@@ -1073,20 +1385,37 @@ static void key_byte(u8 sc) {
     if (sc == 0x3B) { activate(0); scene_dirty = 1; return; }
     if (sc == 0x3C) { activate(1); scene_dirty = 1; return; }
     if (sc == 0x3D) { activate(2); scene_dirty = 1; return; }
-    if (sc == 0x3F) { activate(3); scene_dirty = 1; return; }
-    if (sc == 0x3E) { wall = (wall + 1) % 3; scene_dirty = 1; return; }
+    if (sc == 0x3F) {                      /* F5: open browser / reload */
+        if (wins[3].open && wins[3].active) {
+            fetch_page(page_url);
+            cstr_copy(status_msg, "RELOADED", sizeof(status_msg));
+        } else activate(3);
+        scene_dirty = 1;
+        return;
+    }
+    if (sc == 0x01) {                      /* ESC: browser start page */
+        if (wins[3].open && wins[3].active) { page_home(); scene_dirty = 1; }
+        return;
+    }
+    if (sc == 0x3E) { wall = (wall + 1) % 5; scene_dirty = 1; return; }
     if (sc == 0x1C) {
         if (wins[3].active && wins[3].open) { navigate(page_url); scene_dirty = 1; }
         return;
     }
 
     for (a = 0; a < 4; a++) if (wins[a].active && wins[a].open) {
-        if (wins[a].kind == 1 && (sc == 0x48 || sc == 0x50)) {
+        if (wins[a].kind == 1 && (sc == 0x48 || sc == 0x50 || sc == 0x49 || sc == 0x51)) {
             int visible = (wins[a].h - 98) / 10;
             int maxs = page_lines - visible;
+            int step = (sc == 0x49 || sc == 0x51) ? 5 : 1;
             if (maxs < 0) maxs = 0;
-            if (sc == 0x48) { if (page_scroll > 0) page_scroll--; }
-            else { if (page_scroll < maxs) page_scroll++; }
+            if (sc == 0x48 || sc == 0x49) {
+                page_scroll -= step;
+                if (page_scroll < 0) page_scroll = 0;
+            } else {
+                page_scroll += step;
+                if (page_scroll > maxs) page_scroll = maxs;
+            }
             scene_dirty = 1;
             return;
         }
@@ -1116,8 +1445,9 @@ static void key_byte(u8 sc) {
     scene_dirty = 1;
 }
 
-static u8 mp[3];
+static u8 mp[4];
 static int mp_idx = 0;
+static int mp_need = 3;
 
 static void poll_input(void) {
     int n;
@@ -1128,7 +1458,7 @@ static void poll_input(void) {
         d = inb(0x60);
         if (st & 0x20) {
             mp[mp_idx++] = d;
-            if (mp_idx >= 3) { mp_idx = 0; mouse_packet(mp); }
+            if (mp_idx >= mp_need) { mp_idx = 0; mouse_packet(mp); }
         } else {
             key_byte(d);
         }
@@ -1148,6 +1478,13 @@ static void send_mouse(u8 v) {
     kbd_wait(); outb(0x64, 0xD4);
     kbd_wait(); outb(0x60, v);
     aux_wait(); (void)inb(0x60);
+}
+static u8 send_mouse_get(u8 v) {
+    u8 r;
+    kbd_wait(); outb(0x64, 0xD4);
+    kbd_wait(); outb(0x60, v);
+    aux_wait(); r = inb(0x60);
+    return r;
 }
 static void mouse_init(void) {
     u8 cfg;
@@ -1169,8 +1506,15 @@ static void mouse_init(void) {
     aux_wait(); (void)inb(0x60);
     aux_wait(); (void)inb(0x60);
 
+    /* Detect an Intellimouse wheel: sample rate 200, 1, then read ID. */
     send_mouse(0xF3);
-    send_mouse(100);
+    send_mouse(200);
+    send_mouse(0xF3);
+    send_mouse(1);
+    {
+        u8 id = send_mouse_get(0xF2);
+        if (id == 3 || id == 4) { mouse4 = 1; mp_need = 4; }
+    }
     send_mouse(0xF4);
 
     mx = (int)screen_w / 2;
@@ -1180,15 +1524,20 @@ static void mouse_init(void) {
 }
 
 /* ------------------------------ RTC clock ------------------------------- */
+static int bcd2(u8 v) { return ((v >> 4) & 0x0F) * 10 + (v & 0x0F); }
+
 static void read_clock(void) {
-    u8 h, m, s;
+    u8 h, m, s, d, mo, y;
     outb(0x70, 0x85); h = inb(0x71);
     outb(0x70, 0x84); m = inb(0x71);
     outb(0x70, 0x80); s = inb(0x71);
+    outb(0x70, 0x07); d = inb(0x71);
+    outb(0x70, 0x08); mo = inb(0x71);
+    outb(0x70, 0x09); y = inb(0x71);
     h &= 0x7F; m &= 0x7F; s &= 0x7F;
-    hh = ((h >> 4) & 0x0F) * 10 + (h & 0x0F);
-    mm = ((m >> 4) & 0x0F) * 10 + (m & 0x0F);
-    ss = ((s >> 4) & 0x0F) * 10 + (s & 0x0F);
+    hh = bcd2(h); mm = bcd2(m); ss = bcd2(s);
+    dd_day = bcd2(d); dd_month = bcd2(mo);
+    dd_year = 2000 + bcd2(y);
     if (hh > 23) hh = 0;
     if (mm > 59) mm = 0;
     if (ss > 59) ss = 0;
@@ -1219,6 +1568,7 @@ void kernel_main(void) {
     last_clock = hh * 3600 + mm * 60 + ss;
 
     for (;;) {
+        ticks++;
         poll_input();
         read_clock();
         if (hh * 3600 + mm * 60 + ss != last_clock) {
