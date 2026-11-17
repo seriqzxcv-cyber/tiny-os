@@ -1,0 +1,6 @@
+*.o
+*.elf
+*.bin
+os-cd.img
+.iso-root/
+__pycache__/
