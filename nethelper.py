@@ -40,6 +40,17 @@ def rss_to_html(body: str) -> str:
     return body
 
 
+def clean_html(body: str) -> str:
+    """Drop scripts, styles and comments so more of the page fits in 60 KB."""
+    body = re.sub(r"(?is)<script\b[^>]*>.*?</script\s*>", "", body)
+    body = re.sub(r"(?is)<style\b[^>]*>.*?</style\s*>", "", body)
+    body = re.sub(r"(?is)<noscript\b[^>]*>.*?</noscript\s*>", "", body)
+    body = re.sub(r"(?is)<!--.*?-->", "", body)
+    body = re.sub(r"[ \t]{2,}", " ", body)
+    body = re.sub(r"(?:\r?\n){3,}", "\n\n", body)
+    return body
+
+
 def fetch(url: str) -> str:
     url = url.strip()
     if not url:
@@ -63,6 +74,8 @@ def fetch(url: str) -> str:
     text = data.decode("latin-1", errors="replace")
     if "format=rss" in url:
         text = rss_to_html(text)
+    else:
+        text = clean_html(text)
     return text
 
 

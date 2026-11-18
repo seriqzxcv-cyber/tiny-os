@@ -48,13 +48,16 @@ static void cstr_copy(char *dst, const char *src, int sz);
 static u32 page_len = 0;
 static int page_lines = 0;
 static int page_scroll = 0;
-static char page_url[200] = "http://example.com";
+static char page_url[200] = "http://example.com";   /* loaded page */
+static char url_input[200] = "http://example.com";  /* text in address bar */
 static char prev_url[200];
 static int prev_valid = 0;
+static char next_url[200];
+static int next_valid = 0;
 static int url_len = 0;
 static char page_title[96] = "TINY BROWSER";
 static char status_msg[80] = "READY";
-static int url_pos = 0;                 /* caret position inside page_url */
+static int url_pos = 0;                 /* caret position inside url_input */
 static int ctrl_down = 0;
 static int shift_down = 0;
 static int mp_need = 3;
@@ -166,7 +169,7 @@ static void page_home(void) {
         "<hr>"
         "<p><b>EDIT:</b> click the address bar, use LEFT/RIGHT, HOME/END,"
         " BACKSPACE and DELETE. Ctrl+L focuses the bar, Ctrl+R reloads.</p>"
-        "<p>UP/DOWN and PageUp/PageDown scroll. BACK returns to the previous page.</p>";
+        "<p>UP/DOWN and PageUp/PageDown scroll. BACK/FWD walk the history.</p>";
     int i;
     for (i = 0; home[i]; i++) PAGE_BUF[i] = home[i];
     PAGE_BUF[i] = 0;
@@ -174,6 +177,8 @@ static void page_home(void) {
     page_scroll = 0;
     cstr_copy(page_title, "TINY BROWSER", sizeof(page_title));
     cstr_copy(status_msg, "START PAGE", sizeof(status_msg));
+    cstr_copy(url_input, page_url, sizeof(url_input));
+    url_len = cstrlen(url_input);
     url_pos = url_len;
 }
 
@@ -181,6 +186,7 @@ static void url_set(const char *s) {
     int i = 0;
     while (s[i] && i < 190) { page_url[i] = s[i]; i++; }
     page_url[i] = 0;
+    cstr_copy(url_input, page_url, sizeof(url_input));
     url_len = i;
     url_pos = i;
 }
@@ -221,6 +227,7 @@ static void navigate(const char *u) {
         prev_url[i] = 0;
         prev_valid = 1;
     }
+    next_valid = 0;
     prepare_url(u, full, sizeof(full));
     url_set(full);
     page_title[0] = 0;
@@ -230,13 +237,31 @@ static void navigate(const char *u) {
 }
 
 static void go_back(void) {
+    int i;
     if (!prev_valid) return;
+    for (i = 0; page_url[i]; i++) next_url[i] = page_url[i];
+    next_url[i] = 0;
+    next_valid = 1;
     url_set(prev_url);
     page_title[0] = 0;
     fetch_page(page_url);
     if (!page_title[0]) cstr_copy(page_title, "TINY BROWSER", sizeof(page_title));
     cstr_copy(status_msg, prev_url, sizeof(status_msg));
     prev_valid = 0;
+}
+
+static void go_forward(void) {
+    int i;
+    if (!next_valid) return;
+    for (i = 0; page_url[i]; i++) prev_url[i] = page_url[i];
+    prev_url[i] = 0;
+    prev_valid = 1;
+    url_set(next_url);
+    page_title[0] = 0;
+    fetch_page(page_url);
+    if (!page_title[0]) cstr_copy(page_title, "TINY BROWSER", sizeof(page_title));
+    cstr_copy(status_msg, next_url, sizeof(status_msg));
+    next_valid = 0;
 }
 
 static int starts_ci(const char *s, const char *p) {
@@ -907,7 +932,8 @@ static void render_html(int px, int py, int pw, int ph) {
 /* ------------------------- window contents ------------------------------ */
 static void draw_browser(Win *w) {
     int bx = w->x + 8, by = w->y + 30;
-    int ax = w->x + 58, aw = w->w - 190;
+    int fx = w->x + 56;
+    int ax = w->x + 104, aw = w->w - 236;
     int gx = w->x + w->w - 86;
     int hx = w->x + w->w - 46;
     int px = w->x + 8, py = w->y + 58;
@@ -922,13 +948,18 @@ static void draw_browser(Win *w) {
     frame(bx, by, 44, 20, RGB(120, 135, 160));
     draw_text_n(bx + 6, by + 6, "BACK", 6, RGB(235, 240, 250));
 
+    /* FWD */
+    rect(fx, by, 44, 20, RGB(58, 82, 90));
+    frame(fx, by, 44, 20, RGB(110, 150, 158));
+    draw_text_n(fx + 6, by + 6, "FWD", 5, RGB(235, 240, 250));
+
     /* address bar */
     rect(ax, by, aw, 20, RGB(12, 16, 26));
     frame(ax, by, aw, 20, w->active ? RGB(90, 160, 235) : RGB(70, 80, 100));
     {
         int vis = aw / 6 - 2, start = url_pos - vis + 1;
         if (start < 0) start = 0;
-        draw_text_n(ax + 6, by + 6, page_url + start, vis, RGB(215, 232, 255));
+        draw_text_n(ax + 6, by + 6, url_input + start, vis, RGB(215, 232, 255));
         if (w->active)
             rect(ax + 6 + (url_pos - start) * 6, by + 4, 4, 11, RGB(235, 245, 255));
     }
@@ -1330,13 +1361,18 @@ static void mouse_packet(u8 *p) {
         if (wins[3].open) {
             Win *b = &wins[3];
             int by = b->y + 30;
-            int ax = b->x + 58, aw = b->w - 190;
+            int fx = b->x + 56;
+            int ax = b->x + 104, aw = b->w - 236;
             int gx = b->x + b->w - 86;
             int hx = b->x + b->w - 46;
             int px = b->x + 14, py = b->y + 66;
             int pw = b->w - 28, ph = b->h - 106;
             if (mx >= b->x + 8 && mx < b->x + 52 && my >= by && my < by + 20) {
                 go_back(); activate(3); scene_dirty = 1;
+                goto after_click;
+            }
+            if (mx >= fx && mx < fx + 44 && my >= by && my < by + 20) {
+                go_forward(); activate(3); scene_dirty = 1;
                 goto after_click;
             }
             if (mx >= ax && mx < ax + aw && my >= by && my < by + 20) {
@@ -1348,7 +1384,7 @@ static void mouse_packet(u8 *p) {
                 goto after_click;
             }
             if (mx >= gx && mx < gx + 34 && my >= by && my < by + 20) {
-                navigate(page_url); activate(3); scene_dirty = 1;
+                navigate(url_input); activate(3); scene_dirty = 1;
                 goto after_click;
             }
             if (mx >= hx && mx < hx + 38 && my >= by && my < by + 20) {
@@ -1440,7 +1476,8 @@ after_click:
 static const char scmap[128] = {
     [0x02]='1', [0x03]='2', [0x04]='3', [0x05]='4', [0x06]='5',
     [0x07]='6', [0x08]='7', [0x09]='8', [0x0A]='9', [0x0B]='0',
-    [0x0C]='-', [0x27]=':', [0x34]='.', [0x35]='/',
+    [0x0C]='-', [0x0D]='=', [0x27]=':', [0x33]=',', [0x34]='.',
+    [0x35]='/', [0x28]='\'',
     [0x1E]='A', [0x30]='B', [0x2E]='C', [0x20]='D', [0x12]='E',
     [0x21]='F', [0x22]='G', [0x23]='H', [0x17]='I', [0x24]='J',
     [0x25]='K', [0x26]='L', [0x32]='M', [0x31]='N', [0x18]='O',
@@ -1448,6 +1485,29 @@ static const char scmap[128] = {
     [0x16]='U', [0x2F]='V', [0x11]='W', [0x2D]='X', [0x15]='Y',
     [0x2C]='Z', [0x39]=' ', [0x0E]=8,
 };
+
+/* Shifted punctuation - only characters the 5x7 font actually has. */
+static char shifted_char(char c) {
+    if (c >= '0' && c <= '9') {
+        switch (c) {
+            case '1': return '!';
+            case '2': return '@';
+            case '3': return '#';
+            case '5': return '%';
+            case '7': return '&';
+            case '8': return '(';
+            case '9': return ')';
+            case '0': return '(';
+        }
+    }
+    if (c == '-') return '_';
+    if (c == '=') return '+';
+    if (c == '.') return '>';
+    if (c == ',') return '<';
+    if (c == '/') return '?';
+    if (c == '\'') return '"';
+    return c;
+}
 
 static void key_byte(u8 sc) {
     int a;
@@ -1465,9 +1525,15 @@ static void key_byte(u8 sc) {
         activate(3);
         url_len = 0;
         url_pos = 0;
-        page_url[0] = 0;
+        url_input[0] = 0;
         scene_dirty = 1;
         return;
+    }
+    if (ctrl_down && sc == 0x4B) {          /* Ctrl+Left: history back */
+        go_back(); scene_dirty = 1; return;
+    }
+    if (ctrl_down && sc == 0x4D) {          /* Ctrl+Right: history forward */
+        go_forward(); scene_dirty = 1; return;
     }
     if (ctrl_down && sc == 0x13) {          /* Ctrl+R: reload page */
         if (wins[3].open && wins[3].active) {
@@ -1493,9 +1559,17 @@ static void key_byte(u8 sc) {
         if (wins[3].open && wins[3].active) { page_home(); scene_dirty = 1; }
         return;
     }
+    if (sc == 0x40) {                      /* F6: history back */
+        if (wins[3].active && wins[3].open) { go_back(); scene_dirty = 1; }
+        return;
+    }
+    if (sc == 0x41) {                      /* F7: history forward */
+        if (wins[3].active && wins[3].open) { go_forward(); scene_dirty = 1; }
+        return;
+    }
     if (sc == 0x3E) { wall = (wall + 1) % 5; scene_dirty = 1; return; }
     if (sc == 0x1C) {
-        if (wins[3].active && wins[3].open) { navigate(page_url); scene_dirty = 1; }
+        if (wins[3].active && wins[3].open) { navigate(url_input); scene_dirty = 1; }
         return;
     }
 
@@ -1516,14 +1590,14 @@ static void key_byte(u8 sc) {
         if (sc == 0x0E || sc == 0x53) {    /* Backspace / Delete */
             int k;
             if (sc == 0x0E && url_pos > 0) {
-                for (k = url_pos - 1; k < url_len; k++) page_url[k] = page_url[k + 1];
+                for (k = url_pos - 1; k < url_len; k++) url_input[k] = url_input[k + 1];
                 url_pos--;
                 url_len--;
             } else if (sc == 0x53 && url_pos < url_len) {
-                for (k = url_pos; k < url_len - 1; k++) page_url[k] = page_url[k + 1];
+                for (k = url_pos; k < url_len - 1; k++) url_input[k] = url_input[k + 1];
                 url_len--;
             }
-            page_url[url_len] = 0;
+            url_input[url_len] = 0;
             scene_dirty = 1;
             return;
         }
@@ -1560,14 +1634,18 @@ static void key_byte(u8 sc) {
 
     {
         char c = scmap[sc];
-        if (c >= 'A' && c <= 'Z' && !shift_down) c += 32;
+        if (c >= 'A' && c <= 'Z') {
+            if (!shift_down) c += 32;
+        } else if (shift_down) {
+            c = shifted_char(c);
+        }
         if (wins[3].active && wins[3].open) {
             if (c && url_len < 190) {
                 int k;
-                for (k = url_len; k > url_pos; k--) page_url[k] = page_url[k - 1];
-                page_url[url_pos++] = c;
+                for (k = url_len; k > url_pos; k--) url_input[k] = url_input[k - 1];
+                url_input[url_pos++] = c;
                 url_len++;
-                page_url[url_len] = 0;
+                url_input[url_len] = 0;
             }
         } else if (wins[2].active && wins[2].open) {
             if (c == 8) { if (notes_len > 0) notes[--notes_len] = 0; }
