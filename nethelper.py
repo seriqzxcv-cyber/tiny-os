@@ -9,7 +9,9 @@ QEMU подключает COM1 к UNIX-сокету. Ядро шлёт "GET <url
 
 Так ядро получает настоящий интернет без собственного TCP/IP-стека.
 """
+import html
 import os
+import re
 import socket
 import struct
 import sys
@@ -20,6 +22,22 @@ import urllib.request
 SOCK = "/tmp/tinyos-net.sock"
 MAX_BODY = 60000
 TIMEOUT = 15
+
+
+def rss_to_html(body: str) -> str:
+    """Make Bing's RSS compact and clickable for the tiny HTML renderer."""
+    def link_repl(m: "re.Match") -> str:
+        u = html.unescape(m.group(1)).strip()
+        if not u.startswith(("http://", "https://")):
+            return ""
+        return '<a href="%s">%s</a>' % (u, u)
+
+    body = re.sub(r"<link>(.*?)</link>", link_repl, body, flags=re.S)
+    body = re.sub(r"<copyright>.*?</copyright>", "", body, flags=re.S)
+    body = body.replace("<item>", "<hr><b>").replace("</item>", "</b>")
+    body = body.replace('<rss version="2.0">', "").replace("</rss>", "")
+    body = body.replace("<channel>", "").replace("</channel>", "")
+    return body
 
 
 def fetch(url: str) -> str:
@@ -42,7 +60,10 @@ def fetch(url: str) -> str:
         data = resp.read(MAX_BODY)
 
     # latin-1 сохраняет каждый байт как один символ - шрифт ядра 8-битный.
-    return data.decode("latin-1", errors="replace")
+    text = data.decode("latin-1", errors="replace")
+    if "format=rss" in url:
+        text = rss_to_html(text)
+    return text
 
 
 def error_page(url: str, exc: Exception) -> str:

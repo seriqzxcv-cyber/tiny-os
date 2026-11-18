@@ -196,7 +196,7 @@ static int prepare_url(const char *u, char *out, int sz) {
     }
     i = 0;
     if (!has_scheme && !has_dot) {
-        const char *q = "https://lite.duckduckgo.com/lite/?q=";
+        const char *q = "https://www.bing.com/search?format=rss&q=";
         while (q[j] && j < sz - 1) { out[j] = q[j]; j++; }
         while (u[i] && j < sz - 1) {
             out[j++] = (u[i] == ' ') ? '+' : u[i];
