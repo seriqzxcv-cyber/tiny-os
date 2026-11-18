@@ -57,6 +57,7 @@ static char status_msg[80] = "READY";
 static int url_pos = 0;                 /* caret position inside page_url */
 static int ctrl_down = 0;
 static int shift_down = 0;
+static int mp_need = 3;
 
 typedef struct {
     int x, y, w, h;
@@ -1578,7 +1579,6 @@ static void key_byte(u8 sc) {
 
 static u8 mp[4];
 static int mp_idx = 0;
-static int mp_need = 3;
 
 static void poll_input(void) {
     int n;
@@ -1614,7 +1614,11 @@ static u8 send_mouse_get(u8 v) {
     u8 r;
     kbd_wait(); outb(0x64, 0xD4);
     kbd_wait(); outb(0x60, v);
-    aux_wait(); r = inb(0x60);
+    aux_wait(); r = inb(0x60);          /* ACK 0xFA */
+    if (r == 0xFA) {                    /* 0xF2 also returns the device ID */
+        aux_wait();
+        r = inb(0x60);
+    }
     return r;
 }
 static void mouse_init(void) {
