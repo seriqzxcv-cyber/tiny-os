@@ -1134,7 +1134,7 @@ static void window_content(Win *w) {
         draw_num(w->x + w->w - 150, sy, (int)page_len, RGB(155, 210, 180));
         draw_text(w->x + w->w - 100, sy, "BYTES", RGB(120, 170, 150));
     } else {
-        draw_text(w->x + 10, sy, "TINY OS v0.1", RGB(120, 150, 185));
+        draw_text(w->x + 10, sy, "TINY OS v2", RGB(120, 150, 185));
         draw_text(w->x + w->w - 132, sy, theme_name[wall], RGB(160, 190, 225));
         draw_text(w->x + w->w - 70, sy, "READY", RGB(120, 200, 150));
     }
@@ -1209,7 +1209,7 @@ static void draw_all(void) {
     }
 
     draw_text2((int)screen_w / 2 - 82, 46, "TINY OS", RGB(175, 220, 255));
-    draw_text((int)screen_w / 2 - 116, 68, "GRAPHICAL OS FOR QEMU  -  v0.1", RGB(120, 160, 210));
+    draw_text((int)screen_w / 2 - 116, 68, "GRAPHICAL OS FOR QEMU  -  v2", RGB(120, 160, 210));
     rect((int)screen_w / 2 - 130, 82, 260, 2, RGB(70, 130, 200));
 
     rect(0, (int)screen_h - 40, (int)screen_w, 40, RGB(24, 27, 34));
@@ -1254,7 +1254,7 @@ static void draw_all(void) {
                       RGB(205, 215, 232));
         }
         rect(MENU_X + 6, my0 + 140, MENU_W - 12, 1, RGB(70, 82, 104));
-        draw_text(MENU_X + 8, my0 + 144, "TINY OS v0.1", RGB(130, 160, 200));
+        draw_text(MENU_X + 8, my0 + 144, "TINY OS v2", RGB(130, 160, 200));
         draw_text(MENU_X + MENU_W - 88, my0 + 144, theme_name[wall], RGB(180, 205, 235));
     }
 }

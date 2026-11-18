@@ -34,7 +34,7 @@ Add bootable ISO and working internet browser
 - Fix mouse lag: redraw only two 12x16 rectangles on cursor movement
 - Extend font to 83 glyphs, polish window chrome, icons and live RTC clock
 
-v0.1:
+v2:
 - Add start menu, real minimize, double-click maximize, click-to-raise
 - Add 5 themes, CMOS date, mouse wheel, link hover
 - Add HOME button, search queries, page title and status line
@@ -55,7 +55,7 @@ Add bootable ISO, internet browser and lag-free mouse rendering
 ## 4. Release notes (для Releases)
 
 ~~~markdown
-## TINY OS v0.1
+## TINY OS v2
 
 Графическая ОС, которую можно загрузить в QEMU.
 Образ диска занимает 35 328 байт.
@@ -218,7 +218,7 @@ git push -u origin main
 ### Шаг 8. Создайте Release и приложите образы
 
 1. Нажмите **Releases → Create a new release**.
-2. Tag: `v0.1`, Title: `TINY OS v0.1`.
+2. Tag: `v2`, Title: `TINY OS v2`.
 3. В поле описания вставьте release notes из раздела 4.
 4. Перетащите вниз в блок **Attach binaries**: `tinyos.iso`, `os.img`, `screenshot.png`.
 5. Нажмите **Publish release**.
