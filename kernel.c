@@ -54,6 +54,9 @@ static int prev_valid = 0;
 static int url_len = 0;
 static char page_title[96] = "TINY BROWSER";
 static char status_msg[80] = "READY";
+static int url_pos = 0;                 /* caret position inside page_url */
+static int ctrl_down = 0;
+static int shift_down = 0;
 
 typedef struct {
     int x, y, w, h;
@@ -154,9 +157,15 @@ static void page_home(void) {
         "<h1>TINY BROWSER</h1>"
         "<p>Real internet inside TINY OS.</p>"
         "<p>Type an address and press ENTER, or click a link.</p>"
-        "<p><a href=\"http://example.com\">Open example.com</a></p>"
-        "<p><a href=\"http://info.cern.ch\">The first website ever</a></p>"
-        "<p>UP/DOWN scroll. BACK returns to the previous page.</p>";
+        "<hr>"
+        "<ul>"
+        "<li><a href=\"http://example.com\">Open example.com</a></li>"
+        "<li><a href=\"http://info.cern.ch\">The first website ever</a></li>"
+        "</ul>"
+        "<hr>"
+        "<p><b>EDIT:</b> click the address bar, use LEFT/RIGHT, HOME/END,"
+        " BACKSPACE and DELETE. Ctrl+L focuses the bar, Ctrl+R reloads.</p>"
+        "<p>UP/DOWN and PageUp/PageDown scroll. BACK returns to the previous page.</p>";
     int i;
     for (i = 0; home[i]; i++) PAGE_BUF[i] = home[i];
     PAGE_BUF[i] = 0;
@@ -164,6 +173,7 @@ static void page_home(void) {
     page_scroll = 0;
     cstr_copy(page_title, "TINY BROWSER", sizeof(page_title));
     cstr_copy(status_msg, "START PAGE", sizeof(status_msg));
+    url_pos = url_len;
 }
 
 static void url_set(const char *s) {
@@ -171,6 +181,7 @@ static void url_set(const char *s) {
     while (s[i] && i < 190) { page_url[i] = s[i]; i++; }
     page_url[i] = 0;
     url_len = i;
+    url_pos = i;
 }
 
 /* Accept bare domains and plain search terms in the address bar. */
@@ -713,10 +724,16 @@ typedef struct {
     int link, link_x, link_y;
     char link_label[64];
     int link_llen;
+    int bullet;
 } Rctx;
 
 static void r_emit(Rctx *c, char ch) {
     int sx, sy;
+    if (c->bullet && c->col == 0) {
+        c->bullet = 0;
+        r_emit(c, '-');
+        r_emit(c, ' ');
+    }
     if (c->col >= c->maxcol) { c->col = 0; c->line++; }
     sx = c->px + c->col * 6;
     sy = c->py + c->line * 10 - c->scroll * 10;
@@ -730,7 +747,12 @@ static void r_emit(Rctx *c, char ch) {
 }
 
 static void r_break(Rctx *c) {
+    c->bullet = 0;
     if (c->col > 0) { c->col = 0; c->line++; }
+}
+
+static void r_text(Rctx *c, const char *s) {
+    while (*s) r_emit(c, *s++);
 }
 
 static void render_html(int px, int py, int pw, int ph) {
@@ -745,6 +767,7 @@ static void render_html(int px, int py, int pw, int ph) {
     c.link_color = RGB(28, 92, 205);
     c.link = 0; c.link_x = px; c.link_y = py;
     c.link_label[0] = 0; c.link_llen = 0;
+    c.bullet = 0;
     nlinks = 0;
 
     while (*p) {
@@ -790,7 +813,6 @@ static void render_html(int px, int py, int pw, int ph) {
                 continue;
             }
             if (!closing && (ci_eq(ns, nl, "script") || ci_eq(ns, nl, "style") ||
-                             ci_eq(ns, nl, "head")   ||
                              ci_eq(ns, nl, "noscript") || ci_eq(ns, nl, "iframe"))) {
                 p = skip_to_close(*gt ? gt + 1 : gt, ns, nl);
                 continue;
@@ -800,12 +822,34 @@ static void render_html(int px, int py, int pw, int ph) {
                 if (ci_eq(ns, nl, "h1")) { r_break(&c); c.color = RGB(18, 58, 132); }
                 else if (ci_eq(ns, nl, "h2")) { r_break(&c); c.color = RGB(26, 78, 158); }
                 else if (ci_eq(ns, nl, "h3")) { r_break(&c); c.color = RGB(40, 90, 160); }
+                else if (ci_eq(ns, nl, "li")) {
+                    r_break(&c); c.color = RGB(35, 40, 52);
+                    c.bullet = 1;
+                }
                 else if (ci_eq(ns, nl, "p") || ci_eq(ns, nl, "div") ||
-                         ci_eq(ns, nl, "li") || ci_eq(ns, nl, "tr") ||
-                         ci_eq(ns, nl, "ul") || ci_eq(ns, nl, "ol")) {
+                         ci_eq(ns, nl, "tr") || ci_eq(ns, nl, "ul") ||
+                         ci_eq(ns, nl, "ol") || ci_eq(ns, nl, "blockquote")) {
                     r_break(&c); c.color = RGB(35, 40, 52);
                 }
                 else if (ci_eq(ns, nl, "br")) { r_break(&c); }
+                else if (ci_eq(ns, nl, "hr")) {
+                    int yy;
+                    r_break(&c);
+                    yy = c.py + c.line * 10 - c.scroll * 10 + 4;
+                    if (yy >= c.py && yy + 1 <= c.py + c.ph)
+                        rect(c.px, yy, c.pw - 16, 1, RGB(165, 176, 192));
+                    r_break(&c);
+                }
+                else if (ci_eq(ns, nl, "img")) {
+                    char alt[96];
+                    alt[0] = 0;
+                    if (*gt) find_attr(ns + nl, gt, "alt", alt, sizeof(alt));
+                    if (!alt[0]) cstr_copy(alt, "IMAGE", sizeof(alt));
+                    r_text(&c, "[IMG: ");
+                    r_text(&c, alt);
+                    r_emit(&c, ']');
+                    r_break(&c);
+                }
                 else if (ci_eq(ns, nl, "b") || ci_eq(ns, nl, "strong"))
                     c.color = RGB(15, 20, 30);
                 else if (ci_eq(ns, nl, "a")) {
@@ -880,9 +924,13 @@ static void draw_browser(Win *w) {
     /* address bar */
     rect(ax, by, aw, 20, RGB(12, 16, 26));
     frame(ax, by, aw, 20, w->active ? RGB(90, 160, 235) : RGB(70, 80, 100));
-    draw_text_n(ax + 6, by + 6, page_url, aw / 6 - 2, RGB(215, 232, 255));
-    if (w->active)
-        rect(ax + 6 + url_len * 6, by + 4, 4, 11, RGB(235, 245, 255));
+    {
+        int vis = aw / 6 - 2, start = url_pos - vis + 1;
+        if (start < 0) start = 0;
+        draw_text_n(ax + 6, by + 6, page_url + start, vis, RGB(215, 232, 255));
+        if (w->active)
+            rect(ax + 6 + (url_pos - start) * 6, by + 4, 4, 11, RGB(235, 245, 255));
+    }
 
     /* GO */
     rect(gx, by, 34, 20, RGB(40, 140, 90));
@@ -897,7 +945,22 @@ static void draw_browser(Win *w) {
     /* page */
     rect(px, py, pw, ph, RGB(248, 249, 251));
     rect(px, py, pw, 1, RGB(200, 208, 220));
-    render_html(px + 6, py + 8, pw - 12, ph - 16);
+    render_html(px + 6, py + 8, pw - 20, ph - 16);
+
+    /* scrollbar: thumb shows the current position in the document */
+    {
+        int bar_x = px + pw - 11, bar_y = py + 3, bar_h = ph - 6;
+        int vis_lines = (ph - 16) / 10;
+        int maxs = page_lines - vis_lines, th, ty;
+        rect(bar_x, bar_y, 5, bar_h, RGB(224, 229, 238));
+        frame(bar_x, bar_y, 5, bar_h, RGB(160, 170, 185));
+        if (maxs < 0) maxs = 0;
+        th = bar_h * vis_lines / (page_lines > 0 ? page_lines : 1);
+        if (th < 12) th = 12;
+        if (th > bar_h) th = bar_h;
+        ty = bar_y + (maxs > 0 ? (bar_h - th) * page_scroll / maxs : 0);
+        rect(bar_x + 1, ty, 3, th - 2, RGB(70, 130, 205));
+    }
 }
 
 static void window_content(Win *w) {
@@ -946,11 +1009,15 @@ static void window_content(Win *w) {
     rect(w->x + 5, sy - 4, w->w - 10, 1, RGB(70, 85, 110));
     if (w->kind == 1) {
         draw_text_n(w->x + 10, sy, page_title, 24, RGB(150, 190, 230));
-        draw_text_n(w->x + 170, sy, status_msg, 30, RGB(175, 205, 235));
+        draw_text_n(w->x + 170, sy, status_msg, 24, RGB(175, 205, 235));
+        draw_text(w->x + 360, sy, "LINE ", RGB(130, 165, 200));
+        draw_num(w->x + 390, sy, page_scroll + 1, RGB(180, 205, 235));
+        draw_char(w->x + 420, sy, '/', RGB(130, 165, 200));
+        draw_num(w->x + 426, sy, page_lines, RGB(180, 205, 235));
         draw_num(w->x + w->w - 150, sy, (int)page_len, RGB(155, 210, 180));
         draw_text(w->x + w->w - 100, sy, "BYTES", RGB(120, 170, 150));
     } else {
-        draw_text(w->x + 10, sy, "TINY OS 1.0", RGB(120, 150, 185));
+        draw_text(w->x + 10, sy, "TINY OS v0.1", RGB(120, 150, 185));
         draw_text(w->x + w->w - 132, sy, theme_name[wall], RGB(160, 190, 225));
         draw_text(w->x + w->w - 70, sy, "READY", RGB(120, 200, 150));
     }
@@ -1010,7 +1077,7 @@ static void draw_all(void) {
             putp(x, y, RGB(90, 115, 155));
 
     draw_text2((int)screen_w / 2 - 82, 46, "TINY OS", RGB(175, 220, 255));
-    draw_text((int)screen_w / 2 - 132, 68, "A MINIMAL GRAPHICAL OPERATING SYSTEM", RGB(120, 160, 210));
+    draw_text((int)screen_w / 2 - 116, 68, "GRAPHICAL OS FOR QEMU  -  v0.1", RGB(120, 160, 210));
     rect((int)screen_w / 2 - 130, 82, 260, 2, RGB(70, 130, 200));
 
     rect(0, (int)screen_h - 40, (int)screen_w, 40, RGB(24, 27, 34));
@@ -1026,9 +1093,9 @@ static void draw_all(void) {
     draw_char((int)screen_w - 108, (int)screen_h - 29, '.', RGB(160, 195, 230));
     draw_num((int)screen_w - 102, (int)screen_h - 29, dd_month, RGB(160, 195, 230));
     draw_num((int)screen_w - 78, (int)screen_h - 29, hh, RGB(255, 220, 140));
-    draw_char((int)screen_w - 54, (int)screen_h - 29, ':', RGB(255, 220, 140));
+    draw_char((int)screen_w - 54, (int)screen_h - 29, (ss & 1) ? ':' : ' ', RGB(255, 220, 140));
     draw_num((int)screen_w - 48, (int)screen_h - 29, mm, RGB(255, 220, 140));
-    draw_char((int)screen_w - 24, (int)screen_h - 29, ':', RGB(255, 220, 140));
+    draw_char((int)screen_w - 24, (int)screen_h - 29, (ss & 1) ? ':' : ' ', RGB(255, 220, 140));
     draw_num((int)screen_w - 18, (int)screen_h - 29, ss, RGB(255, 220, 140));
 
     sort_windows(order);
@@ -1272,7 +1339,11 @@ static void mouse_packet(u8 *p) {
                 goto after_click;
             }
             if (mx >= ax && mx < ax + aw && my >= by && my < by + 20) {
-                activate(3); scene_dirty = 1;
+                activate(3);
+                url_pos = (mx - ax - 6) / 6;
+                if (url_pos < 0) url_pos = 0;
+                if (url_pos > url_len) url_pos = url_len;
+                scene_dirty = 1;
                 goto after_click;
             }
             if (mx >= gx && mx < gx + 34 && my >= by && my < by + 20) {
@@ -1379,8 +1450,32 @@ static const char scmap[128] = {
 
 static void key_byte(u8 sc) {
     int a;
-    if (sc & 0x80) return;
+    if (sc & 0x80) {
+        sc &= 0x7F;
+        if (sc == 0x1D) ctrl_down = 0;
+        if (sc == 0x2A || sc == 0x36) shift_down = 0;
+        return;
+    }
     sc &= 0x7F;
+    if (sc == 0x1D) { ctrl_down = 1; return; }
+    if (sc == 0x2A || sc == 0x36) { shift_down = 1; return; }
+
+    if (ctrl_down && sc == 0x26) {          /* Ctrl+L: new address (select all) */
+        activate(3);
+        url_len = 0;
+        url_pos = 0;
+        page_url[0] = 0;
+        scene_dirty = 1;
+        return;
+    }
+    if (ctrl_down && sc == 0x13) {          /* Ctrl+R: reload page */
+        if (wins[3].open && wins[3].active) {
+            fetch_page(page_url);
+            cstr_copy(status_msg, "RELOADED", sizeof(status_msg));
+            scene_dirty = 1;
+        }
+        return;
+    }
 
     if (sc == 0x3B) { activate(0); scene_dirty = 1; return; }
     if (sc == 0x3C) { activate(1); scene_dirty = 1; return; }
@@ -1401,6 +1496,36 @@ static void key_byte(u8 sc) {
     if (sc == 0x1C) {
         if (wins[3].active && wins[3].open) { navigate(page_url); scene_dirty = 1; }
         return;
+    }
+
+    /* address bar is a real editor when the browser is active */
+    if (wins[3].active && wins[3].open) {
+        if (sc == 0x4B) {                  /* Left */
+            if (url_pos > 0) url_pos--;
+            scene_dirty = 1;
+            return;
+        }
+        if (sc == 0x4D) {                  /* Right */
+            if (url_pos < url_len) url_pos++;
+            scene_dirty = 1;
+            return;
+        }
+        if (sc == 0x47) { url_pos = 0; scene_dirty = 1; return; }        /* Home */
+        if (sc == 0x4F) { url_pos = url_len; scene_dirty = 1; return; }   /* End */
+        if (sc == 0x0E || sc == 0x53) {    /* Backspace / Delete */
+            int k;
+            if (sc == 0x0E && url_pos > 0) {
+                for (k = url_pos - 1; k < url_len; k++) page_url[k] = page_url[k + 1];
+                url_pos--;
+                url_len--;
+            } else if (sc == 0x53 && url_pos < url_len) {
+                for (k = url_pos; k < url_len - 1; k++) page_url[k] = page_url[k + 1];
+                url_len--;
+            }
+            page_url[url_len] = 0;
+            scene_dirty = 1;
+            return;
+        }
     }
 
     for (a = 0; a < 4; a++) if (wins[a].active && wins[a].open) {
@@ -1434,9 +1559,15 @@ static void key_byte(u8 sc) {
 
     {
         char c = scmap[sc];
+        if (c >= 'A' && c <= 'Z' && !shift_down) c += 32;
         if (wins[3].active && wins[3].open) {
-            if (c == 8) { if (url_len > 0) page_url[--url_len] = 0; }
-            else if (c && url_len < 190) { page_url[url_len++] = c; page_url[url_len] = 0; }
+            if (c && url_len < 190) {
+                int k;
+                for (k = url_len; k > url_pos; k--) page_url[k] = page_url[k - 1];
+                page_url[url_pos++] = c;
+                url_len++;
+                page_url[url_len] = 0;
+            }
         } else if (wins[2].active && wins[2].open) {
             if (c == 8) { if (notes_len > 0) notes[--notes_len] = 0; }
             else if (c && notes_len < 60) notes[notes_len++] = c;

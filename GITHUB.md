@@ -34,10 +34,12 @@ Add bootable ISO and working internet browser
 - Fix mouse lag: redraw only two 12x16 rectangles on cursor movement
 - Extend font to 83 glyphs, polish window chrome, icons and live RTC clock
 
-v1.1:
+v0.1:
 - Add start menu, real minimize, double-click maximize, click-to-raise
 - Add 5 themes, CMOS date, mouse wheel, link hover
 - Add HOME button, search queries, page title and status line
+- Make URL bar editable: caret, arrows, Home/End, Delete, Ctrl+L and Ctrl+R
+- Handle Shift for lowercase URLs; add scrollbar, line counter, hr/img/bullets
 ```
 
 Короткий вариант:
@@ -49,25 +51,26 @@ Add bootable ISO, internet browser and lag-free mouse rendering
 ## 4. Release notes (для Releases)
 
 ~~~markdown
-## TINY OS v1.1 — тотальное обновление
+## TINY OS v0.1
 
 Графическая ОС, которую можно загрузить в QEMU.
-Образ диска занимает 28 КБ.
+Образ диска занимает 31 232 байт.
 
-### Что нового
-- **TINY BROWSER**: адресная строка, история (BACK/GO), кликабельные ссылки,
-  прокрутка и компактный HTML-рендерер. Страницы загружаются реально из
-  интернета через `nethelper.py` (COM1 → UNIX socket → urllib).
+### Что внутри
+- **TINY BROWSER**: редактируемая адресная строка, история (BACK/GO/HOME),
+  кликабельные ссылки, прокрутка, полоса прокрутки и счётчик строк.
+  Страницы загружаются реально из интернета через `nethelper.py`
+  (COM1 → UNIX socket → urllib).
+- **HTML-рендерер**: заголовки, абзацы, `<hr>`, маркированные списки,
+  `<img alt>`, `<b>`, сущности, `<title>` в строке состояния.
+- **Оболочка**: меню «Пуск», настоящая минимизация, двойной клик по заголовку,
+  клик по неактивному окну, 5 тем, колесо мыши, подсветка ссылок.
+- **Графика**: градиенты, скруглённые рамки окон, иконки, дата, время
+  и мигающие двоеточия из CMOS RTC.
 - **Загрузочный ISO**: `tinyos.iso` грузится через `qemu-system-i386 -cdrom`.
-- **Мышь без лагов**: при движении перерисовываются только два маленьких
-  прямоугольника, а не весь экран.
-- **Графика**: градиенты, скруглённые рамки окон, иконки, дата и время из CMOS.
-- **v1.1**: меню «Пуск», настоящая минимизация, двойной клик по заголовку,
-  клик по неактивному окну, 5 тем, колесо мыши, подсветка ссылок,
-  кнопка HOME, поиск по запросу, `<title>` в строке состояния.
 
 ### Файлы
-- `os.img` — загрузочный raw-образ диска (28 КБ)
+- `os.img` — загрузочный raw-образ диска (31 232 байт)
 - `tinyos.iso` — загрузочный ISO (El Torito, no emulation)
 - `run.sh` — запуск с интернетом (поднимает `nethelper.py`)
 
@@ -78,8 +81,11 @@ qemu-system-i386 -cdrom tinyos.iso -boot d -m 64     # с ISO
 ```
 
 ### Управление
-F5 — открыть браузер, ENTER — загрузить адрес, ↑/↓ — прокрутка,
-BACK/GO — история/перезагрузка. Окна двигаются за заголовок.
+OS — меню, F1–F3 — окна, F4 — тема, F5 — браузер/обновить, ESC — стартовая
+страница, ENTER — адрес/домен/поиск, Ctrl+L — новая адресная строка,
+Ctrl+R — обновить, ←/→ и Home/End — редактирование адреса, ↑/↓ и
+PageUp/PageDown — прокрутка, колесо мыши — прокрутка, двойной клик по
+заголовку — развернуть окно.
 ~~~
 
 ## 5. Заголовок README (первая строка)
@@ -205,7 +211,7 @@ git push -u origin main
 ### Шаг 8. Создайте Release и приложите образы
 
 1. Нажмите **Releases → Create a new release**.
-2. Tag: `v1.1`, Title: `TINY OS v1.1`.
+2. Tag: `v0.1`, Title: `TINY OS v0.1`.
 3. В поле описания вставьте release notes из раздела 4.
 4. Перетащите вниз в блок **Attach binaries**: `tinyos.iso`, `os.img`, `screenshot.png`.
 5. Нажмите **Publish release**.

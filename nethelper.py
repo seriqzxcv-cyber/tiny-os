@@ -7,7 +7,7 @@ QEMU подключает COM1 к UNIX-сокету. Ядро шлёт "GET <url
 
     u32 (little-endian) длина + тело страницы (latin-1, 1 байт = 1 символ)
 
-Так 20 КБ ядро получает настоящий интернет без собственного TCP/IP-стека.
+Так ядро получает настоящий интернет без собственного TCP/IP-стека.
 """
 import os
 import socket
@@ -34,7 +34,7 @@ def fetch(url: str) -> str:
     req = urllib.request.Request(
         url,
         headers={
-            "User-Agent": "TinyOS/1.0 (+tiny browser)",
+            "User-Agent": "TinyOS/0.1 (+tiny browser)",
             "Accept": "text/html,text/plain,*/*",
         },
     )
