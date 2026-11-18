@@ -427,6 +427,64 @@ static void draw_num(int x, int y, int v, u32 c) {
     while (i > 0) { draw_char(x, y, b[--i], c); x += 6; }
 }
 
+static int isqrt_small(int v) {
+    int r = 0;
+    while ((r + 1) * (r + 1) <= v) r++;
+    return r;
+}
+
+/* Cheap triangle wave used for the mountain silhouettes. */
+static int wave(int x, int period, int amp) {
+    int p = (x % period + period) % period;
+    if (p > period / 2) p = period - p;
+    return p * amp * 2 / period;
+}
+
+static void fill_circle(int cx, int cy, int r, u32 c) {
+    int y, dx;
+    for (y = -r; y <= r; y++) {
+        int v = r * r - y * y;
+        dx = v >= 0 ? isqrt_small(v) : 0;
+        rect(cx - dx, cy + y, dx * 2 + 1, 1, c);
+    }
+}
+
+/* Classic raised/beveled button - works for any rectangle. */
+static void bevel(int x, int y, int w, int h, u32 base, int hot) {
+    rect(x, y, w, h, hot ? lerp(base, RGB(255, 255, 255), 24) : base);
+    rect(x, y, w, 1, lerp(base, RGB(255, 255, 255), hot ? 65 : 48));
+    rect(x, y, 1, h, lerp(base, RGB(255, 255, 255), hot ? 50 : 34));
+    rect(x, y + h - 1, w, 1, lerp(base, RGB(0, 0, 0), hot ? 55 : 38));
+    rect(x + w - 1, y, 1, h, lerp(base, RGB(0, 0, 0), hot ? 55 : 38));
+}
+
+static void draw_app_icon(int x, int y, int idx) {
+    int i;
+    if (idx == 0) {                       /* welcome window */
+        rect(x, y, 10, 10, RGB(38, 92, 160));
+        frame(x, y, 10, 10, RGB(205, 228, 255));
+        rect(x + 1, y + 1, 8, 2, RGB(110, 170, 235));
+        putp(x + 3, y + 5, RGB(255, 255, 255));
+        putp(x + 6, y + 5, RGB(255, 255, 255));
+        rect(x + 3, y + 7, 4, 1, RGB(255, 255, 255));
+    } else if (idx == 1) {                /* monitor */
+        rect(x + 1, y, 8, 7, RGB(42, 52, 68));
+        frame(x + 1, y, 8, 7, RGB(185, 205, 230));
+        rect(x + 2, y + 1, 6, 5, RGB(70, 145, 210));
+        rect(x + 4, y + 7, 2, 2, RGB(185, 205, 230));
+        rect(x + 2, y + 9, 6, 1, RGB(140, 160, 190));
+    } else if (idx == 2) {                /* notepad */
+        rect(x + 1, y, 8, 10, RGB(28, 96, 68));
+        frame(x + 1, y, 8, 10, RGB(120, 220, 170));
+        for (i = 0; i < 3; i++) rect(x + 2, y + 3 + i * 2, 5, 1, RGB(185, 240, 205));
+    } else {                              /* browser globe */
+        fill_circle(x + 5, y + 5, 4, RGB(38, 118, 205));
+        rect(x + 1, y + 5, 8, 1, RGB(160, 215, 255));
+        rect(x + 5, y + 1, 1, 8, RGB(160, 215, 255));
+        frame(x + 3, y + 1, 4, 8, RGB(120, 190, 245));
+    }
+}
+
 /* -------------------------- blit / cursor updates ----------------------- */
 static void raw_copy(volatile u8 *dst, u8 *src, u32 n) {
     __asm__ volatile ("cld; rep movsb" : : "S"(src), "D"(dst), "c"(n) : "memory");
@@ -528,8 +586,8 @@ static void sort_windows(Win **out) {
 }
 
 static void draw_button(int x, int y, u32 normal, u32 hover, char glyph, int hot) {
-    rect(x, y, 16, 16, hot ? lerp(hover, RGB(255, 255, 255), 28) : hover);
-    frame(x, y, 16, 16, normal);
+    bevel(x, y, 16, 16, hot ? hover : normal, hot);
+    draw_char(x + 6, y + 5, glyph, RGB(10, 12, 18));
     draw_char(x + 5, y + 4, glyph, RGB(255, 255, 255));
 }
 
@@ -591,8 +649,9 @@ static void draw_hover_item(int id, int hot) {
         menu_item_rect(i, &x, &y, &w, &h);
         rect(x, y, w, h, hot ? lerp(accent[wall], RGB(255,255,255), 22)
                              : RGB(34, 39, 52));
-        if (i < 4) rect(x + 3, y + 5, 4, 10, task_color[i]);
-        draw_text(x + 14, y + 6, names[i],
+        if (i < 4) draw_app_icon(x + 2, y + 2, i);
+        else if (i == 4) rect(x + 4, y + 5, 10, 10, accent[wall]);
+        draw_text(x + 17, y + 6, names[i],
                   hot ? RGB(255,255,255) : RGB(205, 215, 232));
         return;
     }
@@ -610,8 +669,9 @@ static void draw_hover_item(int id, int hot) {
         rect(bx, by, 116, 26,
              hot ? RGB(72, 86, 110) : (wins[i].open ? RGB(48, 55, 70) : RGB(32, 36, 44)));
         frame(bx, by, 116, 26, hot ? RGB(140, 185, 235) : RGB(80, 88, 106));
-        rect(bx + 5, by + 5, 4, 16, wins[i].open ? task_color[i] : RGB(85, 90, 105));
-        draw_text_n(bx + 14, by + 7, task_label[i], 16,
+        if (wins[i].active) rect(bx + 2, by + 24, 112, 2, accent[wall]);
+        draw_app_icon(bx + 4, by + 8, i);
+        draw_text_n(bx + 18, by + 7, task_label[i], 16,
                     wins[i].open ? RGB(235, 240, 250) : RGB(130, 136, 148));
         return;
     }
@@ -751,6 +811,8 @@ typedef struct {
     char link_label[64];
     int link_llen;
     int bullet;
+    int bold;
+    int underline;
 } Rctx;
 
 static void r_emit(Rctx *c, char ch) {
@@ -763,8 +825,10 @@ static void r_emit(Rctx *c, char ch) {
     if (c->col >= c->maxcol) { c->col = 0; c->line++; }
     sx = c->px + c->col * 6;
     sy = c->py + c->line * 10 - c->scroll * 10;
-    if (sy >= c->py && sy + 8 <= c->py + c->ph && ch >= 32)
+    if (sy >= c->py && sy + 8 <= c->py + c->ph && ch >= 32) {
         draw_char(sx, sy, ch, c->color);
+        if (c->bold) draw_char(sx + 1, sy, ch, c->color);
+    }
     if (c->link && sy >= c->py && sy + 8 <= c->py + c->ph) {
         rect(sx, sy + 7, 6, 1, c->link_color);
         if (c->link_llen < 63 && ch >= 32) c->link_label[c->link_llen++] = ch;
@@ -773,6 +837,12 @@ static void r_emit(Rctx *c, char ch) {
 }
 
 static void r_break(Rctx *c) {
+    if (c->underline && c->col > 0) {
+        int yy = c->py + c->line * 10 - c->scroll * 10 + 8;
+        if (yy >= c->py && yy + 1 <= c->py + c->ph)
+            rect(c->px, yy, c->col * 6, 1, c->color);
+    }
+    c->underline = 0;
     c->bullet = 0;
     if (c->col > 0) { c->col = 0; c->line++; }
 }
@@ -794,6 +864,8 @@ static void render_html(int px, int py, int pw, int ph) {
     c.link = 0; c.link_x = px; c.link_y = py;
     c.link_label[0] = 0; c.link_llen = 0;
     c.bullet = 0;
+    c.bold = 0;
+    c.underline = 0;
     nlinks = 0;
 
     while (*p) {
@@ -845,9 +917,13 @@ static void render_html(int px, int py, int pw, int ph) {
             }
 
             if (!closing) {
-                if (ci_eq(ns, nl, "h1")) { r_break(&c); c.color = RGB(18, 58, 132); }
-                else if (ci_eq(ns, nl, "h2")) { r_break(&c); c.color = RGB(26, 78, 158); }
-                else if (ci_eq(ns, nl, "h3")) { r_break(&c); c.color = RGB(40, 90, 160); }
+                if (ci_eq(ns, nl, "h1") || ci_eq(ns, nl, "h2") || ci_eq(ns, nl, "h3")) {
+                    r_break(&c);
+                    c.color = ci_eq(ns, nl, "h1") ? RGB(18, 58, 132) :
+                              ci_eq(ns, nl, "h2") ? RGB(26, 78, 158) : RGB(40, 90, 160);
+                    c.bold = 1;
+                    c.underline = 1;
+                }
                 else if (ci_eq(ns, nl, "li")) {
                     r_break(&c); c.color = RGB(35, 40, 52);
                     c.bullet = 1;
@@ -876,8 +952,10 @@ static void render_html(int px, int py, int pw, int ph) {
                     r_emit(&c, ']');
                     r_break(&c);
                 }
-                else if (ci_eq(ns, nl, "b") || ci_eq(ns, nl, "strong"))
+                else if (ci_eq(ns, nl, "b") || ci_eq(ns, nl, "strong")) {
                     c.color = RGB(15, 20, 30);
+                    c.bold = 1;
+                }
                 else if (ci_eq(ns, nl, "a")) {
                     cur_url[0] = 0;
                     if (*gt)
@@ -912,9 +990,15 @@ static void render_html(int px, int py, int pw, int ph) {
                         c.color = RGB(35, 40, 52);
                     }
                 }
-                else if (ci_eq(ns, nl, "b") || ci_eq(ns, nl, "strong") ||
-                         ci_eq(ns, nl, "h1") || ci_eq(ns, nl, "h2") || ci_eq(ns, nl, "h3"))
+                else if (ci_eq(ns, nl, "b") || ci_eq(ns, nl, "strong")) {
+                    c.bold = 0;
                     c.color = RGB(35, 40, 52);
+                }
+                else if (ci_eq(ns, nl, "h1") || ci_eq(ns, nl, "h2") || ci_eq(ns, nl, "h3")) {
+                    r_break(&c);
+                    c.bold = 0;
+                    c.color = RGB(35, 40, 52);
+                }
                 else if (ci_eq(ns, nl, "p") || ci_eq(ns, nl, "div") || ci_eq(ns, nl, "li"))
                     r_break(&c);
             }
@@ -941,17 +1025,18 @@ static void draw_browser(Win *w) {
 
     /* toolbar */
     rect(w->x + 1, w->y + 24, w->w - 2, 30, RGB(38, 43, 56));
+    rect(w->x + 1, w->y + 24, w->w - 2, 1, RGB(72, 80, 100));
     rect(w->x + 1, w->y + 53, w->w - 2, 1, RGB(10, 12, 18));
 
     /* BACK */
-    rect(bx, by, 44, 20, RGB(70, 78, 96));
-    frame(bx, by, 44, 20, RGB(120, 135, 160));
-    draw_text_n(bx + 6, by + 6, "BACK", 6, RGB(235, 240, 250));
+    bevel(bx, by, 44, 20, RGB(78, 88, 110), 0);
+    draw_text_n(bx + 7, by + 7, "BACK", 6, RGB(10, 12, 18));
+    draw_text_n(bx + 6, by + 6, "BACK", 6, RGB(240, 245, 255));
 
     /* FWD */
-    rect(fx, by, 44, 20, RGB(58, 82, 90));
-    frame(fx, by, 44, 20, RGB(110, 150, 158));
-    draw_text_n(fx + 6, by + 6, "FWD", 5, RGB(235, 240, 250));
+    bevel(fx, by, 44, 20, RGB(64, 96, 104), 0);
+    draw_text_n(fx + 7, by + 7, "FWD", 5, RGB(10, 12, 18));
+    draw_text_n(fx + 6, by + 6, "FWD", 5, RGB(240, 245, 255));
 
     /* address bar */
     rect(ax, by, aw, 20, RGB(12, 16, 26));
@@ -965,14 +1050,14 @@ static void draw_browser(Win *w) {
     }
 
     /* GO */
-    rect(gx, by, 34, 20, RGB(40, 140, 90));
-    frame(gx, by, 34, 20, RGB(110, 210, 160));
+    bevel(gx, by, 34, 20, RGB(46, 155, 100), 0);
+    draw_text_n(gx + 11, by + 7, "GO", 4, RGB(8, 30, 18));
     draw_text_n(gx + 10, by + 6, "GO", 4, RGB(255, 255, 255));
 
     /* HOME */
-    rect(hx, by, 38, 20, RGB(70, 78, 110));
-    frame(hx, by, 38, 20, RGB(145, 160, 200));
-    draw_text_n(hx + 5, by + 6, "HOME", 5, RGB(235, 240, 255));
+    bevel(hx, by, 38, 20, RGB(78, 88, 122), 0);
+    draw_text_n(hx + 6, by + 7, "HOME", 5, RGB(10, 12, 22));
+    draw_text_n(hx + 5, by + 6, "HOME", 5, RGB(240, 245, 255));
 
     /* page */
     rect(px, py, pw, ph, RGB(248, 249, 251));
@@ -1073,8 +1158,7 @@ static void draw_window(Win *w) {
         rect(w->x + 1, w->y + 1 + row, w->w - 2, 1, c);
     }
     rect(w->x + 1, w->y + 23, w->w - 2, 1, RGB(8, 12, 22));
-    rect(w->x + 8, w->y + 7, 10, 10, task_color[idx]);
-    frame(w->x + 8, w->y + 7, 10, 10, RGB(230, 240, 255));
+    draw_app_icon(w->x + 8, w->y + 7, idx);
     draw_text(w->x + 24, w->y + 7, w->title, RGB(255, 255, 255));
     if (w->active)
         rect(w->x + 24, w->y + 19, 26, 2, RGB(140, 205, 255));
@@ -1093,7 +1177,7 @@ static void draw_window(Win *w) {
 /* ------------------------------- drawing -------------------------------- */
 static void draw_all(void) {
     Win *order[4];
-    int i, x, y;
+    int i, x;
     u32 top = wall_top[wall];
     u32 sh = screen_h - 40;
 
@@ -1104,9 +1188,25 @@ static void draw_all(void) {
                  (((top >> 8) & 255)  * k) / 100 + 6,
                  ((top & 255)         * k) / 100 + 12));
     }
-    for (y = 24; y < (int)sh - 8; y += 32)
-        for (x = 24; x < (int)screen_w - 8; x += 32)
-            putp(x, y, RGB(90, 115, 155));
+    /* night sky: stars, a glowing sun, then two mountain layers */
+    for (i = 0; i < 90; i++) {
+        int sx = (i * 137 + 53) % (int)screen_w;
+        int sy = (i * 89 + 17) % ((int)sh * 2 / 3);
+        u32 c = (((i + (int)(ticks / 16)) & 3) == 0)
+              ? RGB(210, 225, 255) : RGB(120, 145, 190);
+        putp(sx, sy, c);
+    }
+    fill_circle(838, 116, 34, RGB(58, 68, 92));
+    fill_circle(838, 116, 27, RGB(122, 116, 106));
+    fill_circle(838, 116, 21, RGB(255, 208, 122));
+    for (x = 0; x < (int)screen_w; x++) {
+        int far  = (int)sh * 72 / 100 - wave(x,      170, 96) - wave(x + 40, 260, 40);
+        int near = (int)sh * 84 / 100 - wave(x + 90, 220, 64);
+        if (far < 0) far = 0;
+        if (near < 0) near = 0;
+        rect(x, far, 1, (int)sh - far, lerp(wall_top[wall], RGB(8, 12, 28), 45));
+        rect(x, near, 1, (int)sh - near, lerp(wall_top[wall], RGB(2, 4, 12), 72));
+    }
 
     draw_text2((int)screen_w / 2 - 82, 46, "TINY OS", RGB(175, 220, 255));
     draw_text((int)screen_w / 2 - 116, 68, "GRAPHICAL OS FOR QEMU  -  v0.1", RGB(120, 160, 210));
@@ -1146,12 +1246,16 @@ static void draw_all(void) {
             int x, y, w, h;
             menu_item_rect(i, &x, &y, &w, &h);
             rect(x, y, w, h, RGB(34, 39, 52));
-            if (i < 4) rect(x + 3, y + 5, 4, 10, task_color[i]);
-            draw_text(x + 14, y + 6,
+            if (i < 4) draw_app_icon(x + 2, y + 2, i);
+            else if (i == 4) rect(x + 4, y + 5, 10, 10, accent[wall]);
+            draw_text(x + 17, y + 6,
                       i == 0 ? "WELCOME" : i == 1 ? "SYSTEM" : i == 2 ? "NOTES" :
                       i == 3 ? "BROWSER" : i == 4 ? "CHANGE THEME" : "CLOSE MENU",
                       RGB(205, 215, 232));
         }
+        rect(MENU_X + 6, my0 + 140, MENU_W - 12, 1, RGB(70, 82, 104));
+        draw_text(MENU_X + 8, my0 + 144, "TINY OS v0.1", RGB(130, 160, 200));
+        draw_text(MENU_X + MENU_W - 88, my0 + 144, theme_name[wall], RGB(180, 205, 235));
     }
 }
 
@@ -1568,6 +1672,7 @@ static void key_byte(u8 sc) {
         return;
     }
     if (sc == 0x3E) { wall = (wall + 1) % 5; scene_dirty = 1; return; }
+    if (sc == 0x42) { menu_open = !menu_open; scene_dirty = 1; return; }  /* F8: menu */
     if (sc == 0x1C) {
         if (wins[3].active && wins[3].open) { navigate(url_input); scene_dirty = 1; }
         return;

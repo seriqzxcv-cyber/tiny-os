@@ -42,6 +42,8 @@ v0.1:
 - Handle Shift for lowercase URLs; add scrollbar, line counter, hr/img/bullets
 - Fix PS/2 mouse ID detection (4-byte wheel packets), switch search to Bing RSS
 - Add forward history, F6/F7 and Ctrl+Left/Right, Shift punctuation, strip JS/CSS
+- Major graphics: starry landscape wallpaper, sun, mountains, beveled buttons,
+  pixel app icons, bold/underlined headings, menu footer, F8 to toggle menu
 ```
 
 Короткий вариант:
@@ -56,7 +58,7 @@ Add bootable ISO, internet browser and lag-free mouse rendering
 ## TINY OS v0.1
 
 Графическая ОС, которую можно загрузить в QEMU.
-Образ диска занимает 33 280 байт.
+Образ диска занимает 35 328 байт.
 
 ### Что внутри
 - **TINY BROWSER**: редактируемая адресная строка, история с BACK/FWD
@@ -68,12 +70,13 @@ Add bootable ISO, internet browser and lag-free mouse rendering
   `<img alt>`, `<b>`, сущности, `<title>` в строке состояния.
 - **Оболочка**: меню «Пуск», настоящая минимизация, двойной клик по заголовку,
   клик по неактивному окну, 5 тем, колесо мыши, подсветка ссылок.
-- **Графика**: градиенты, скруглённые рамки окон, иконки, дата, время
-  и мигающие двоеточия из CMOS RTC.
+- **Графика**: пейзаж со звёздами, солнцем и горами, объёмные кнопки,
+  пиксельные иконки приложений, жирные подчёркнутые заголовки, меню с F8,
+  дата, время и мигающие двоеточия из CMOS RTC.
 - **Загрузочный ISO**: `tinyos.iso` грузится через `qemu-system-i386 -cdrom`.
 
 ### Файлы
-- `os.img` — загрузочный raw-образ диска (33 280 байт)
+- `os.img` — загрузочный raw-образ диска (35 328 байт)
 - `tinyos.iso` — загрузочный ISO (El Torito, no emulation)
 - `run.sh` — запуск с интернетом (поднимает `nethelper.py`)
 
@@ -84,7 +87,7 @@ qemu-system-i386 -cdrom tinyos.iso -boot d -m 64     # с ISO
 ```
 
 ### Управление
-OS — меню, F1–F3 — окна, F4 — тема, F5 — браузер/обновить, ESC — стартовая
+OS или F8 — меню, F1–F3 — окна, F4 — тема, F5 — браузер/обновить, ESC — стартовая
 страница, ENTER — адрес/домен/поиск, Ctrl+L — новая адресная строка,
 Ctrl+R — обновить, F6/F7 — история назад/вперёд, ←/→ и Home/End —
 редактирование адреса, Shift+знаки — `? & = + _ < > @ # % ! "`, ↑/↓ и
