@@ -70,7 +70,7 @@ Add bootable ISO, internet browser and lag-free mouse rendering
 ## TINY OS gen0.3
 
 Графическая ОС, которую можно загрузить в QEMU.
-Образ диска занимает 46 080 байт.
+Образ диска занимает 48 128 байт.
 
 ### Что внутри
 - **TINY BROWSER**: редактируемая адресная строка, история с BACK/FWD
@@ -89,6 +89,10 @@ Add bootable ISO, internet browser and lag-free mouse rendering
 - **TINY SHELL (F9)**: терминал с историей команд (↑/↓) и виртуальной ФС:
   `pwd`, `ls`, `cd`, `mkdir`, `cat`; команды `git clone/status/log` выполняются
   на хосте через `nethelper.py`.
+- **Notes**: нескольких строк, **Ctrl+S** сохраняет заметку в
+  `tinyos_fs/notes.txt`, **Ctrl+O** загружает её обратно.
+- **Терминал**: история команд (↑/↓), прокрутка вывода PageUp/PageDown
+  и полоса прокрутки.
 - **Пакеты**: `pip install NAME` действительно ставит пакет через pip в
   `tinyos_fs/site-packages`, `pip show NAME` показывает данные с PyPI,
   `pip uninstall NAME` удаляет файлы, `pip list` выводит реестр;
@@ -99,7 +103,7 @@ Add bootable ISO, internet browser and lag-free mouse rendering
 - **Загрузочный ISO**: `tinyos.iso` грузится через `qemu-system-i386 -cdrom`.
 
 ### Файлы
-- `os.img` — загрузочный raw-образ диска (46 080 байт)
+- `os.img` — загрузочный raw-образ диска (48 128 байт)
 - `tinyos.iso` — загрузочный ISO (El Torito, no emulation)
 - `run.sh` — запуск с интернетом (поднимает `nethelper.py`)
 
@@ -117,8 +121,9 @@ Ctrl+L — новая адресная строка, Ctrl+R — обновить
 назад/вперёд, ←/→ и Home/End — редактирование адреса, Shift+знаки —
 `? & = + _ < > @ # % ! "`, ↑/↓ и PageUp/PageDown — прокрутка, колесо мыши —
 прокрутка, Tab/Shift+Tab — выбор ссылки, Alt+Tab — переключение окон,
-Ctrl+W — закрыть окно, двойной клик по заголовку — развернуть окно,
-правый нижний угол — изменить размер; в терминале — `help`, ↑/↓ — история,
+Ctrl+W — закрыть окно, в Notes Ctrl+S/Ctrl+O — сохранить/загрузить,
+двойной клик по заголовку — развернуть окно,
+правый нижний угол — изменить размер; в терминале — `help`, ↑/↓ — история, PageUp/PageDown — прокрутка,
 `ls`, `cd`, `git clone URL`, `pip install NAME`, `pip show NAME`, `pip list`.
 ~~~
 

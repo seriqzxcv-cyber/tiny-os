@@ -284,6 +284,25 @@ def pip_uninstall(name: str) -> str:
     return "Removed %s and its files." % key
 
 
+NOTES_FILE = os.path.join(FS_ROOT, "notes.txt")
+
+
+def notes_save(encoded: str) -> str:
+    text = encoded.replace("\\n", "\n")
+    with open(NOTES_FILE, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    return "Saved %d bytes to /notes.txt" % len(text.encode("utf-8"))
+
+
+def notes_load() -> str:
+    try:
+        with open(NOTES_FILE, "r", encoding="utf-8") as fh:
+            text = fh.read(4000)
+    except FileNotFoundError:
+        return ""
+    return text.replace("\n", "\\n")
+
+
 def shell_command(line: str) -> str:
     parts = line.split()
     cmd = parts[0] if parts else ""
@@ -342,6 +361,10 @@ def serve_one(conn: socket.socket) -> None:
             try:
                 if cmd == "PKGLIST":
                     body = pkg_command(url)
+                elif cmd == "NOTESSAVE":
+                    body = notes_save(url[len("NOTESSAVE "):] if " " in url else "")
+                elif cmd == "NOTESLOAD":
+                    body = notes_load()
                 elif cmd in host_commands:
                     body = shell_command(url)
                 else:

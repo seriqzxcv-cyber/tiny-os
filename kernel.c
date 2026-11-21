@@ -602,7 +602,7 @@ static const char *task_label[WIN_N] = {
 #define TERM_MAX 40
 #define TERM_CMD 128
 static char term_lines[TERM_MAX][80];
-static int term_head = 0, term_count = 0;
+static int term_head = 0, term_count = 0, term_scroll = 0;
 static char term_cmd[TERM_CMD];
 static int term_pos = 0;
 static char term_cwd[80] = "/";
@@ -625,6 +625,7 @@ static int wall = 0;
 
 static char notes[256];
 static int notes_len = 0;
+static char notes_status[40] = "READY";
 
 static int mx = 400, my = 300, mb = 0;
 static int old_mx = 400, old_my = 300;
@@ -1281,10 +1282,53 @@ static int term_request(const char *req, char *out, int outsz) {
     return 1;
 }
 
+/* Notes are stored on the host as text with \n escaped as two characters,
+   so one COM1 line is enough for a multi-line note. */
+static void notes_encode(char *dst, int dstsz) {
+    int i, j = 0;
+    for (i = 0; i < notes_len && j < dstsz - 3; i++) {
+        if (notes[i] == '\n') { dst[j++] = '\\'; dst[j++] = 'n'; }
+        else dst[j++] = notes[i];
+    }
+    dst[j] = 0;
+}
+
+static void notes_decode(const char *src) {
+    int i;
+    notes_len = 0;
+    for (i = 0; src[i] && notes_len < 255; i++) {
+        if (src[i] == '\\' && src[i + 1] == 'n') {
+            notes[notes_len++] = '\n';
+            i++;
+        } else notes[notes_len++] = src[i];
+    }
+    notes[notes_len] = 0;
+}
+
+static void notes_store(int save) {
+    char req[600], reply[120];
+    if (save) {
+        cstr_copy(req, "NOTESSAVE ", 11);
+        notes_encode(req + 10, sizeof(req) - 10);
+        if (term_request(req, reply, sizeof(reply)))
+            cstr_copy(notes_status, "SAVED TO DISK", sizeof(notes_status));
+        else
+            cstr_copy(notes_status, "OFFLINE", sizeof(notes_status));
+    } else {
+        if (term_request("NOTESLOAD", reply, sizeof(reply))) {
+            notes_decode(reply);
+            cstr_copy(notes_status, "LOADED FROM DISK", sizeof(notes_status));
+        } else {
+            cstr_copy(notes_status, "OFFLINE", sizeof(notes_status));
+        }
+    }
+    scene_dirty = 1;
+}
+
 static void term_show_reply(char *reply) {
     char *p = reply;
     int shown = 0;
-    while (*p && shown < 8) {
+    while (*p && shown < 16) {
         char *e = p;
         while (*e && *e != '\n') e++;
         char save = *e;
@@ -1339,6 +1383,7 @@ static void term_exec(void) {
     int argc = 0, i;
     char *p;
     cstr_copy(cmd, term_cmd, sizeof(cmd));
+    term_scroll = 0;
     term_cat(buf, "> ", cmd);
     term_print(buf);
     term_save_history(cmd);
@@ -1358,7 +1403,8 @@ static void term_exec(void) {
         term_print("GIT: git clone URL | git status | git log");
         term_print("PACKAGES: pip install PKG | pip show PKG | pip uninstall PKG");
         term_print("pip list | pkg install PKG | apt install PKG");
-        term_print("SHELL: clear  ver  date  echo TEXT  (Up/Down = history)");
+        term_print("SHELL: clear  ver  date  echo TEXT  Up/Down: history");
+        term_print("PageUp/PageDown: scroll terminal output");
     } else if (term_streq(argv[0], "clear")) {
         term_head = 0; term_count = 0;
     } else if (term_streq(argv[0], "ver")) {
@@ -1447,11 +1493,23 @@ static void draw_terminal(Win *w) {
     if (rows > TERM_MAX) rows = TERM_MAX;
     rect(x, y, w->w - 24, ph, RGB(5, 9, 15));
     frame(x, y, w->w - 24, ph, RGB(55, 95, 80));
-    for (i = 0; i < rows; i++) {
-        int idx = term_count - rows + i;
-        if (idx < 0) continue;
-        draw_text(x + 5, y + 4 + i * 12, term_line(idx),
-                  idx == term_count - 1 ? RGB(215, 245, 228) : RGB(125, 205, 165));
+    {
+        int base = term_count - rows - term_scroll;
+        if (base < 0) base = 0;
+        for (i = 0; i < rows; i++) {
+            int idx = base + i;
+            if (idx >= term_count) break;
+            draw_text(x + 5, y + 4 + i * 12, term_line(idx),
+                      idx == term_count - 1 ? RGB(215, 245, 228) : RGB(125, 205, 165));
+        }
+        if (term_count > rows) {
+            int maxs = term_count - rows, bar_x = x + w->w - 30;
+            int th = ph * rows / term_count, ty;
+            if (th < 16) th = 16;
+            rect(bar_x, y + 4, 3, ph - 8, RGB(16, 38, 28));
+            ty = y + 4 + (ph - 8 - th) * term_scroll / (maxs > 0 ? maxs : 1);
+            rect(bar_x, ty, 3, th - 2, RGB(120, 215, 165));
+        }
     }
     i = y + ph - 16;
     rect(x + 4, i, w->w - 32, 12, RGB(12, 24, 30));
@@ -1529,6 +1587,10 @@ static void window_content(Win *w) {
     } else if (w == &wins[4]) {
         draw_text(w->x + 10, sy, "TINY SHELL - PIP / PKG", RGB(120, 200, 165));
         draw_text(w->x + w->w - 160, sy, "F9: TERMINAL", RGB(160, 190, 225));
+        draw_text(w->x + w->w - 70, sy, "READY", RGB(120, 200, 150));
+    } else if (w == &wins[2]) {
+        draw_text(w->x + 10, sy, notes_status, RGB(120, 200, 150));
+        draw_text(w->x + w->w - 178, sy, "CTRL+S / CTRL+O", RGB(160, 190, 225));
         draw_text(w->x + w->w - 70, sy, "READY", RGB(120, 200, 150));
     } else {
         draw_text(w->x + 10, sy, "TINY OS gen0.3", RGB(120, 150, 185));
@@ -2137,6 +2199,14 @@ static void key_byte(u8 sc) {
         return;
     }
 
+    if (ctrl_down && sc == 0x1F) {          /* Ctrl+S: save Notes on the host */
+        if (wins[2].active && wins[2].open) notes_store(1);
+        return;
+    }
+    if (ctrl_down && sc == 0x18) {          /* Ctrl+O: load Notes from the host */
+        if (wins[2].active && wins[2].open) notes_store(0);
+        return;
+    }
     if (ctrl_down && sc == 0x26) {          /* Ctrl+L: new address (select all) */
         activate(3);
         url_len = 0;
@@ -2241,6 +2311,17 @@ static void key_byte(u8 sc) {
                 term_pos = cstrlen(term_cmd);
                 scene_dirty = 1;
             }
+            return;
+        }
+        if (sc == 0x49 || sc == 0x51) {  /* PageUp/PageDown: scroll output */
+            int rows = (wins[4].h - 76 - 30) / 12;
+            int maxs;
+            if (rows > TERM_MAX) rows = TERM_MAX;
+            maxs = term_count - rows;
+            if (maxs < 0) maxs = 0;
+            if (sc == 0x49) { if (term_scroll < maxs) term_scroll++; }
+            else { if (term_scroll > 0) term_scroll--; }
+            scene_dirty = 1;
             return;
         }
         if (sc == 0x4B) { if (term_pos > 0) term_pos--; scene_dirty = 1; return; }
