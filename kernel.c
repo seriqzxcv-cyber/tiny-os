@@ -675,7 +675,7 @@ static int hover_rect(int id, int *x, int *y, int *w, int *h) {
         *x = 108 + i * 124; *y = (int)screen_h - 33; *w = 116; *h = 26;
         return 1;
     }
-    if (id == 104) {
+    if (id == 105) {
         *x = MENU_X; *y = (int)screen_h - 33; *w = 86; *h = 26;
         return 1;
     }
@@ -702,7 +702,7 @@ static int hover_rect(int id, int *x, int *y, int *w, int *h) {
 }
 
 static void draw_hover_item(int id, int hot) {
-    if (id == 104) {
+    if (id == 105) {
         int bx = MENU_X, by = (int)screen_h - 33;
         rect(bx, by, 86, 26, hot ? lerp(accent[wall], RGB(255,255,255), 30)
                                   : accent[wall]);
@@ -1542,7 +1542,7 @@ static void draw_all(void) {
 
     rect(0, (int)screen_h - 40, (int)screen_w, 40, RGB(24, 27, 34));
     rect(0, (int)screen_h - 40, (int)screen_w, 2, accent[wall]);
-    draw_hover_item(104, 0);
+    draw_hover_item(105, 0);
 
     for (i = 0; i < WIN_N; i++)
         draw_hover_item(100 + i, 0);
@@ -1699,7 +1699,7 @@ static int compute_hover(void) {
         return -1;
     }
     if (mx >= MENU_X && mx < MENU_X + 86 &&
-        my >= (int)screen_h - 33 && my < (int)screen_h - 7) return 104;
+        my >= (int)screen_h - 33 && my < (int)screen_h - 7) return 105;
     if (wins[3].open && !wins[3].minimized && window_at(mx, my) == 3) {
         for (i = 0; i < nlinks; i++)
             if (mx >= links[i].x - 2 && mx < links[i].x + links[i].w + 2 &&
