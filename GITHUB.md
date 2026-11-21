@@ -7,7 +7,7 @@
 ## 1. Описание репозитория (About / Repository description)
 
 ```
-Графическая ОС с нуля: 16-битный загрузчик + 32-битное ядро, VESA 1024x768, окна, мышь и интернет-браузер. Загружается в QEMU.
+Графическая ОС с нуля: 16-битный загрузчик + 32-битное ядро, VESA 1024x768, окна, мышь, интернет-браузер и терминал с pip/pkg. Загружается в QEMU.
 ```
 
 Короткий вариант (до 100 символов):
@@ -44,6 +44,12 @@ gen0.2:
 - Add forward history, F6/F7 and Ctrl+Left/Right, Shift punctuation, strip JS/CSS
 - Major graphics: starry landscape wallpaper, sun, mountains, beveled buttons,
   pixel app icons, bold/underlined headings, menu footer, F8 to toggle menu
+- Add window resizing, Alt+Tab, Ctrl+W and focus hand-off after close
+- Add keyboard link navigation (Tab/Shift+Tab/Enter/Esc) and LOADING status
+- Render numbered lists, preformatted blocks, blockquotes and inline code
+- Make Notes multi-line; show date and page statistics in System Info
+- Add TINY SHELL (F9) with pip/pkg package manager backed by PyPI
+- Use PIT-timed COM1 reads so slow pages and package lookups load reliably
 ```
 
 Короткий вариант:
@@ -58,7 +64,7 @@ Add bootable ISO, internet browser and lag-free mouse rendering
 ## TINY OS gen0.2
 
 Графическая ОС, которую можно загрузить в QEMU.
-Образ диска занимает 35 328 байт.
+Образ диска занимает 43 520 байт.
 
 ### Что внутри
 - **TINY BROWSER**: редактируемая адресная строка, история с BACK/FWD
@@ -66,17 +72,25 @@ Add bootable ISO, internet browser and lag-free mouse rendering
   счётчик строк. Поиск через Bing (RSS → кликабельные результаты, работает
   в России). `nethelper.py` вырезает скрипты и стили перед отдачей страницы.
   Сеть реальная: COM1 → UNIX socket → urllib.
-- **HTML-рендерер**: заголовки, абзацы, `<hr>`, маркированные списки,
-  `<img alt>`, `<b>`, сущности, `<title>` в строке состояния.
+- **HTML-рендерер**: заголовки, абзацы, `<hr>`, маркированные и нумерованные
+  списки, `<pre>` с сохранением переносов, `<blockquote>`, `<code>`, `<img alt>`,
+  `<b>`, сущности, `<title>` в строке состояния.
 - **Оболочка**: меню «Пуск», настоящая минимизация, двойной клик по заголовку,
-  клик по неактивному окну, 5 тем, колесо мыши, подсветка ссылок.
+  клик по неактивному окну, изменение размера окон за правый нижний угол,
+  Alt+Tab, Ctrl+W, 5 тем, колесо мыши, подсветка ссылок.
+- **Клавиатура в браузере**: Tab/Shift+Tab выбирают ссылку, Enter открывает её,
+  Esc снимает фокус; индикатор LOADING во время загрузки.
+- **TINY SHELL (F9)**: терминал с командами help/clear/ver/date/echo и
+  менеджером пакетов `pip install NAME`, `pip uninstall NAME`, `pip list`
+  (и алиасы `pkg`/`apt`). Метаданные пакетов приходят с PyPI через
+  `nethelper.py` и сохраняются в `installed_packages.json` на хосте.
 - **Графика**: пейзаж со звёздами, солнцем и горами, объёмные кнопки,
   пиксельные иконки приложений, жирные подчёркнутые заголовки, меню с F8,
   дата, время и мигающие двоеточия из CMOS RTC.
 - **Загрузочный ISO**: `tinyos.iso` грузится через `qemu-system-i386 -cdrom`.
 
 ### Файлы
-- `os.img` — загрузочный raw-образ диска (35 328 байт)
+- `os.img` — загрузочный raw-образ диска (43 520 байт)
 - `tinyos.iso` — загрузочный ISO (El Torito, no emulation)
 - `run.sh` — запуск с интернетом (поднимает `nethelper.py`)
 
@@ -87,12 +101,16 @@ qemu-system-i386 -cdrom tinyos.iso -boot d -m 64     # с ISO
 ```
 
 ### Управление
-OS или F8 — меню, F1–F3 — окна, F4 — тема, F5 — браузер/обновить, ESC — стартовая
-страница, ENTER — адрес/домен/поиск, Ctrl+L — новая адресная строка,
-Ctrl+R — обновить, F6/F7 — история назад/вперёд, ←/→ и Home/End —
-редактирование адреса, Shift+знаки — `? & = + _ < > @ # % ! "`, ↑/↓ и
-PageUp/PageDown — прокрутка, колесо мыши — прокрутка, двойной клик по
-заголовку — развернуть окно.
+OS или F8 — меню, F1–F3 — окна, F4 — тема, F5 — браузер/обновить,
+F9 — терминал, ESC — стартовая
+страница, ENTER — адрес/домен/поиск или открыть выбранную ссылку,
+Ctrl+L — новая адресная строка, Ctrl+R — обновить, F6/F7 — история
+назад/вперёд, ←/→ и Home/End — редактирование адреса, Shift+знаки —
+`? & = + _ < > @ # % ! "`, ↑/↓ и PageUp/PageDown — прокрутка, колесо мыши —
+прокрутка, Tab/Shift+Tab — выбор ссылки, Alt+Tab — переключение окон,
+Ctrl+W — закрыть окно, двойной клик по заголовку — развернуть окно,
+правый нижний угол — изменить размер, в терминале — `help`, `pip install NAME`,
+`pip uninstall NAME`, `pip list`.
 ~~~
 
 ## 5. Заголовок README (первая строка)

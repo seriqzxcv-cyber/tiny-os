@@ -10,6 +10,7 @@ QEMU подключает COM1 к UNIX-сокету. Ядро шлёт "GET <url
 Так ядро получает настоящий интернет без собственного TCP/IP-стека.
 """
 import html
+import json
 import os
 import re
 import socket
@@ -22,6 +23,8 @@ import urllib.request
 SOCK = "/tmp/tinyos-net.sock"
 MAX_BODY = 60000
 TIMEOUT = 15
+PKG_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                      "installed_packages.json")
 
 
 def rss_to_html(body: str) -> str:
@@ -92,6 +95,70 @@ def error_page(url: str, exc: Exception) -> str:
     )
 
 
+def pkg_load() -> dict:
+    try:
+        with open(PKG_DB, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def pkg_save(db: dict) -> None:
+    with open(PKG_DB, "w", encoding="utf-8") as fh:
+        json.dump(db, fh, indent=2, sort_keys=True, ensure_ascii=False)
+
+
+def pypi_info(name: str) -> tuple:
+    url = "https://pypi.org/pypi/%s/json" % urllib.parse.quote(name, safe="")
+    req = urllib.request.Request(
+        url, headers={"User-Agent": "TinyOS/0.2 (tiny shell package manager)"}
+    )
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+        data = json.load(resp)
+    info = data.get("info", {})
+    return (
+        str(info.get("name", name)),
+        str(info.get("version", "?")),
+        str(info.get("summary", "") or "").replace("\n", " ")[:62],
+    )
+
+
+def pkg_command(line: str) -> str:
+    """pip/pkg-like commands from the TINY SHELL; package data lives on the host."""
+    parts = line.split()
+    cmd = parts[0] if parts else ""
+    if cmd == "PKGLIST":
+        db = pkg_load()
+        if not db:
+            return "No packages installed.\nUse: pip install <name>"
+        return "\n".join(
+            "%s %s\n  %s" % (name, data.get("version", "?"), data.get("summary", ""))
+            for name, data in sorted(db.items())
+        )
+
+    if len(parts) < 2 or not re.fullmatch(r"[A-Za-z0-9_.-]{1,60}", parts[1]):
+        return "Invalid package name. Use letters, digits, . _ -"
+
+    name = parts[1]
+    db = pkg_load()
+    if cmd == "PKGINSTALL":
+        canonical, version, summary = pypi_info(name)
+        db[canonical] = {"version": version, "summary": summary}
+        pkg_save(db)
+        return "Installed %s %s\n  %s" % (canonical, version, summary)
+
+    if cmd == "PKGUNINSTALL":
+        key = next((k for k in db if k.lower() == name.lower()), None)
+        if key is None:
+            return "Package '%s' is not installed." % name
+        del db[key]
+        pkg_save(db)
+        return "Removed %s" % key
+
+    return "Unknown package command: %s" % cmd
+
+
 def serve_one(conn: socket.socket) -> None:
     buf = b""
     while True:
@@ -111,7 +178,10 @@ def serve_one(conn: socket.socket) -> None:
             else:
                 url = line
             try:
-                body = fetch(url)
+                if url.split(" ", 1)[0] in ("PKGLIST", "PKGINSTALL", "PKGUNINSTALL"):
+                    body = pkg_command(url)
+                else:
+                    body = fetch(url)
             except Exception as exc:  # noqa: BLE001 - показываем ошибку в браузере
                 print("nethelper: %s -> %s" % (url, exc), file=sys.stderr, flush=True)
                 body = error_page(url, exc)

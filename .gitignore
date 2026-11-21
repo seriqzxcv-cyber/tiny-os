@@ -4,3 +4,4 @@
 os-cd.img
 .iso-root/
 __pycache__/
+installed_packages.json
