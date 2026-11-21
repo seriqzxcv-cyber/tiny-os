@@ -130,11 +130,13 @@ static int serial_put(u8 c) {
     return 1;
 }
 
-static int serial_get(u8 *c) {
-    if (!serial_wait(0x01, 6000)) return 0;
+static int serial_get_ms(u8 *c, u32 ms) {
+    if (!serial_wait(0x01, ms)) return 0;
     *c = inb(0x3F8);
     return 1;
 }
+
+static int serial_get(u8 *c) { return serial_get_ms(c, 6000); }
 
 static void serial_puts(const char *s) {
     while (*s) serial_put((u8)*s++);
@@ -603,6 +605,10 @@ static char term_lines[TERM_MAX][80];
 static int term_head = 0, term_count = 0;
 static char term_cmd[TERM_CMD];
 static int term_pos = 0;
+static char term_cwd[80] = "/";
+#define TERM_HIST 12
+static char term_hist[TERM_HIST][TERM_CMD];
+static int term_hist_count = 0, term_hist_pos = 0;
 
 static const u32 wall_top[5] = {
     RGB(20, 46, 96), RGB(66, 18, 74), RGB(14, 70, 56),
@@ -1262,13 +1268,13 @@ static int term_request(const char *req, char *out, int outsz) {
     serial_puts(req);
     serial_put('\n');
     for (i = 0; i < 4; i++) {
-        if (!serial_get(&c)) return 0;
+        if (!serial_get_ms(&c, 60000)) return 0;
         n |= (u32)c << (i * 8);
     }
     if (n == 0 || n > PAGE_MAX) return 0;
     keep = n < (u32)(outsz - 1) ? (int)n : outsz - 1;
     for (i = 0; i < n; i++) {
-        if (!serial_get(&c)) return 0;
+        if (!serial_get_ms(&c, 60000)) return 0;
         if (i < (u32)keep) out[i] = (char)c;
     }
     out[keep] = 0;
@@ -1290,13 +1296,52 @@ static void term_show_reply(char *reply) {
     }
 }
 
+static void term_save_history(const char *line) {
+    int slot;
+    if (!line[0]) return;
+    cstr_copy(term_hist[term_hist_count % TERM_HIST], line, TERM_CMD);
+    term_hist_count++;
+    if (term_hist_count > TERM_HIST) term_hist_count = TERM_HIST;
+    term_hist_pos = term_hist_count;
+}
+
+/* Build a path shown in the shell ("/" is tinyos_fs on the host). */
+static void term_path(char *dst, const char *arg) {
+    if (arg[0] == '/') { cstr_copy(dst, arg, 100); return; }
+    if (term_streq(arg, ".") || !arg[0]) { cstr_copy(dst, term_cwd, 100); return; }
+    if (term_streq(arg, "..")) {
+        int n = cstrlen(term_cwd);
+        while (n > 1 && term_cwd[n - 1] == '/') n--;
+        while (n > 1 && term_cwd[n - 1] != '/') n--;
+        if (n > 1) n--;
+        cstr_copy(dst, term_cwd, n + 1);
+        dst[n] = 0;
+        return;
+    }
+    cstr_copy(dst, term_cwd, 100);
+    if (cstrlen(dst) && dst[cstrlen(dst) - 1] != '/') term_cat(dst, dst, "/");
+    term_cat(dst, dst, arg);
+}
+
+static void term_host(const char *req, int show) {
+    char buf[256];
+    if (term_request(req, buf, sizeof(buf))) {
+        if (show) term_show_reply(buf);
+        scene_dirty = 1;
+    } else {
+        term_print("OFFLINE: start QEMU with ./run.sh");
+        scene_dirty = 1;
+    }
+}
+
 static void term_exec(void) {
-    char cmd[TERM_CMD], buf[256], *argv[6];
+    char cmd[TERM_CMD], buf[256], path[100], *argv[6];
     int argc = 0, i;
     char *p;
     cstr_copy(cmd, term_cmd, sizeof(cmd));
     term_cat(buf, "> ", cmd);
     term_print(buf);
+    term_save_history(cmd);
 
     p = cmd;
     while (*p && argc < 6) {
@@ -1306,17 +1351,18 @@ static void term_exec(void) {
         while (*p && *p != ' ') p++;
         if (*p) *p++ = 0;
     }
-    if (argc == 0) return;
+    if (argc == 0) { term_cmd[0] = 0; term_pos = 0; return; }
 
     if (term_streq(argv[0], "help")) {
-        term_print("help  clear  ver  date  echo TEXT");
-        term_print("pip install PKG / pip uninstall PKG / pip list");
-        term_print("pkg install PKG / pkg remove PKG / pkg list");
-        term_print("Aliases: apt install PKG, ls (package list)");
+        term_print("FILES: pwd  ls  cd DIR  mkdir DIR  cat FILE");
+        term_print("GIT: git clone URL | git status | git log");
+        term_print("PACKAGES: pip install PKG | pip show PKG | pip uninstall PKG");
+        term_print("pip list | pkg install PKG | apt install PKG");
+        term_print("SHELL: clear  ver  date  echo TEXT  (Up/Down = history)");
     } else if (term_streq(argv[0], "clear")) {
         term_head = 0; term_count = 0;
     } else if (term_streq(argv[0], "ver")) {
-        term_print("TINY OS gen0.2  /  TINY SHELL 1.0");
+        term_print("TINY OS gen0.3  /  TINY SHELL 1.1");
     } else if (term_streq(argv[0], "date")) {
         buf[0] = (char)('0' + dd_day / 10);
         buf[1] = (char)('0' + dd_day % 10);
@@ -1332,25 +1378,56 @@ static void term_exec(void) {
         term_print(buf);
     } else if (term_streq(argv[0], "echo")) {
         if (argc > 1) term_print(argv[1]); else term_print("");
+    } else if (term_streq(argv[0], "pwd")) {
+        term_print(term_cwd);
     } else if (term_streq(argv[0], "ls")) {
-        if (term_request("PKGLIST", buf, sizeof(buf))) term_show_reply(buf);
-        else term_print("OFFLINE: start QEMU with ./run.sh");
+        term_cat(buf, "FSLIST ", argc > 1 ? argv[1] : term_cwd);
+        term_host(buf, 1);
+    } else if (term_streq(argv[0], "cd")) {
+        if (argc < 2) { term_print("usage: cd DIR"); }
+        else {
+            term_path(path, argv[1]);
+            term_cat(buf, "FSEXIST ", path);
+            if (term_request(buf, buf, sizeof(buf))) {
+                if (buf[0] == 'Y') { cstr_copy(term_cwd, path, sizeof(term_cwd)); scene_dirty = 1; }
+                else { term_cat(path, "No such directory: ", argv[1]); term_print(path); }
+            } else term_print("OFFLINE: start QEMU with ./run.sh");
+        }
+    } else if (term_streq(argv[0], "mkdir")) {
+        if (argc < 2) term_print("usage: mkdir DIR");
+        else { term_path(path, argv[1]); term_cat(buf, "FSMKDIR ", path); term_host(buf, 1); }
+    } else if (term_streq(argv[0], "cat")) {
+        if (argc < 2) term_print("usage: cat FILE");
+        else { term_path(path, argv[1]); term_cat(buf, "FSCAT ", path); term_host(buf, 1); }
+    } else if (term_streq(argv[0], "git")) {
+        if (argc >= 3 && term_streq(argv[1], "clone")) {
+            term_cat(buf, "GITCLONE ", argv[2]);
+            term_print("Working...");
+            term_host(buf, 1);
+        } else if (argc >= 2 && term_streq(argv[1], "status")) {
+            term_cat(buf, "GITSTATUS ", term_cwd);
+            term_host(buf, 1);
+        } else if (argc >= 2 && term_streq(argv[1], "log")) {
+            term_cat(buf, "GITLOG ", term_cwd);
+            term_host(buf, 1);
+        } else term_print("usage: git clone URL | git status | git log");
     } else if (term_streq(argv[0], "pip") || term_streq(argv[0], "pkg") ||
                term_streq(argv[0], "apt")) {
-        if (argc >= 2 && (term_streq(argv[1], "install") || term_streq(argv[1], "add")) && argc >= 3) {
-            term_cat(buf, "PKGINSTALL ", argv[2]);
-            if (term_request(buf, buf, 256)) term_show_reply(buf);
-            else term_print("OFFLINE: start QEMU with ./run.sh");
-        } else if (argc >= 2 && (term_streq(argv[1], "uninstall") ||
-                   term_streq(argv[1], "remove") || term_streq(argv[1], "delete")) && argc >= 3) {
-            term_cat(buf, "PKGUNINSTALL ", argv[2]);
-            if (term_request(buf, buf, 256)) term_show_reply(buf);
-            else term_print("OFFLINE: start QEMU with ./run.sh");
+        if (argc >= 3 && (term_streq(argv[1], "install") || term_streq(argv[1], "add"))) {
+            term_cat(buf, "PIPINSTALL ", argv[2]);
+            term_print("Working...");
+            term_host(buf, 1);
+        } else if (argc >= 3 && (term_streq(argv[1], "uninstall") ||
+                   term_streq(argv[1], "remove") || term_streq(argv[1], "delete"))) {
+            term_cat(buf, "PIPUNINSTALL ", argv[2]);
+            term_host(buf, 1);
+        } else if (argc >= 3 && (term_streq(argv[1], "show") || term_streq(argv[1], "info"))) {
+            term_cat(buf, "PIPSHOW ", argv[2]);
+            term_host(buf, 1);
         } else if (argc >= 2 && term_streq(argv[1], "list")) {
-            if (term_request("PKGLIST", buf, sizeof(buf))) term_show_reply(buf);
-            else term_print("OFFLINE: start QEMU with ./run.sh");
+            term_host("PKGLIST", 1);
         } else {
-            term_print("usage: pip install NAME | pip uninstall NAME | pip list");
+            term_print("usage: pip install PKG | pip show PKG | pip uninstall PKG | pip list");
         }
     } else {
         term_cat(buf, "unknown command: ", argv[0]);
@@ -1454,7 +1531,7 @@ static void window_content(Win *w) {
         draw_text(w->x + w->w - 160, sy, "F9: TERMINAL", RGB(160, 190, 225));
         draw_text(w->x + w->w - 70, sy, "READY", RGB(120, 200, 150));
     } else {
-        draw_text(w->x + 10, sy, "TINY OS gen0.2", RGB(120, 150, 185));
+        draw_text(w->x + 10, sy, "TINY OS gen0.3", RGB(120, 150, 185));
         draw_text(w->x + w->w - 132, sy, theme_name[wall], RGB(160, 190, 225));
         draw_text(w->x + w->w - 70, sy, "READY", RGB(120, 200, 150));
     }
@@ -1537,7 +1614,7 @@ static void draw_all(void) {
     }
 
     draw_text2((int)screen_w / 2 - 82, 46, "TINY OS", RGB(175, 220, 255));
-    draw_text((int)screen_w / 2 - 116, 68, "GRAPHICAL OS FOR QEMU  -  gen0.2", RGB(120, 160, 210));
+    draw_text((int)screen_w / 2 - 116, 68, "GRAPHICAL OS FOR QEMU  -  gen0.3", RGB(120, 160, 210));
     rect((int)screen_w / 2 - 130, 82, 260, 2, RGB(70, 130, 200));
 
     rect(0, (int)screen_h - 40, (int)screen_w, 40, RGB(24, 27, 34));
@@ -1583,7 +1660,7 @@ static void draw_all(void) {
                       RGB(205, 215, 232));
         }
         rect(MENU_X + 6, my0 + MENU_H - 20, MENU_W - 12, 1, RGB(70, 82, 104));
-        draw_text(MENU_X + 8, my0 + MENU_H - 16, "TINY OS gen0.2", RGB(130, 160, 200));
+        draw_text(MENU_X + 8, my0 + MENU_H - 16, "TINY OS gen0.3", RGB(130, 160, 200));
         draw_text(MENU_X + MENU_W - 88, my0 + MENU_H - 16, theme_name[wall], RGB(180, 205, 235));
     }
 }
@@ -2153,6 +2230,17 @@ static void key_byte(u8 sc) {
             if (term_pos < tlen)
                 for (k = term_pos; k < tlen; k++) term_cmd[k] = term_cmd[k + 1];
             scene_dirty = 1;
+            return;
+        }
+        if (sc == 0x48 || sc == 0x50) {  /* Up/Down: command history */
+            if (term_hist_count > 0) {
+                if (sc == 0x48) { if (term_hist_pos > 0) term_hist_pos--; }
+                else if (term_hist_pos < term_hist_count) term_hist_pos++;
+                if (term_hist_pos >= term_hist_count) term_cmd[0] = 0;
+                else cstr_copy(term_cmd, term_hist[term_hist_pos], TERM_CMD);
+                term_pos = cstrlen(term_cmd);
+                scene_dirty = 1;
+            }
             return;
         }
         if (sc == 0x4B) { if (term_pos > 0) term_pos--; scene_dirty = 1; return; }

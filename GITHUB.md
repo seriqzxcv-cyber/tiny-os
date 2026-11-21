@@ -7,13 +7,13 @@
 ## 1. Описание репозитория (About / Repository description)
 
 ```
-Графическая ОС с нуля: 16-битный загрузчик + 32-битное ядро, VESA 1024x768, окна, мышь, интернет-браузер и терминал с pip/pkg. Загружается в QEMU.
+Графическая ОС с нуля: 16-битный загрузчик + 32-битное ядро, VESA 1024x768, окна, мышь, интернет-браузер и терминал с pip/pkg/git. Загружается в QEMU.
 ```
 
 Короткий вариант (до 100 символов):
 
 ```
-Графическая ОС с нуля для QEMU: окна, мышь, интернет-браузер
+ОС для QEMU: окна, мышь, браузер, терминал pip/pkg/git
 ```
 
 ## 2. Topics (теги)
@@ -50,6 +50,12 @@ gen0.2:
 - Make Notes multi-line; show date and page statistics in System Info
 - Add TINY SHELL (F9) with pip/pkg package manager backed by PyPI
 - Use PIT-timed COM1 reads so slow pages and package lookups load reliably
+
+gen0.3:
+- Add a virtual filesystem and shell commands: pwd, ls, cd, mkdir, cat
+- Add git clone/status/log executed by nethelper on the host
+- Make pip install real: install into site-packages, add pip show and version specs
+- Add terminal command history with Up/Down keys
 ```
 
 Короткий вариант:
@@ -61,10 +67,10 @@ Add bootable ISO, internet browser and lag-free mouse rendering
 ## 4. Release notes (для Releases)
 
 ~~~markdown
-## TINY OS gen0.2
+## TINY OS gen0.3
 
 Графическая ОС, которую можно загрузить в QEMU.
-Образ диска занимает 43 520 байт.
+Образ диска занимает 46 080 байт.
 
 ### Что внутри
 - **TINY BROWSER**: редактируемая адресная строка, история с BACK/FWD
@@ -80,17 +86,20 @@ Add bootable ISO, internet browser and lag-free mouse rendering
   Alt+Tab, Ctrl+W, 5 тем, колесо мыши, подсветка ссылок.
 - **Клавиатура в браузере**: Tab/Shift+Tab выбирают ссылку, Enter открывает её,
   Esc снимает фокус; индикатор LOADING во время загрузки.
-- **TINY SHELL (F9)**: терминал с командами help/clear/ver/date/echo и
-  менеджером пакетов `pip install NAME`, `pip uninstall NAME`, `pip list`
-  (и алиасы `pkg`/`apt`). Метаданные пакетов приходят с PyPI через
-  `nethelper.py` и сохраняются в `installed_packages.json` на хосте.
+- **TINY SHELL (F9)**: терминал с историей команд (↑/↓) и виртуальной ФС:
+  `pwd`, `ls`, `cd`, `mkdir`, `cat`; команды `git clone/status/log` выполняются
+  на хосте через `nethelper.py`.
+- **Пакеты**: `pip install NAME` действительно ставит пакет через pip в
+  `tinyos_fs/site-packages`, `pip show NAME` показывает данные с PyPI,
+  `pip uninstall NAME` удаляет файлы, `pip list` выводит реестр;
+  алиасы `pkg`/`apt`. Версию можно зафиксировать: `pip install name==1.2.3`.
 - **Графика**: пейзаж со звёздами, солнцем и горами, объёмные кнопки,
   пиксельные иконки приложений, жирные подчёркнутые заголовки, меню с F8,
   дата, время и мигающие двоеточия из CMOS RTC.
 - **Загрузочный ISO**: `tinyos.iso` грузится через `qemu-system-i386 -cdrom`.
 
 ### Файлы
-- `os.img` — загрузочный raw-образ диска (43 520 байт)
+- `os.img` — загрузочный raw-образ диска (46 080 байт)
 - `tinyos.iso` — загрузочный ISO (El Torito, no emulation)
 - `run.sh` — запуск с интернетом (поднимает `nethelper.py`)
 
@@ -109,8 +118,8 @@ Ctrl+L — новая адресная строка, Ctrl+R — обновить
 `? & = + _ < > @ # % ! "`, ↑/↓ и PageUp/PageDown — прокрутка, колесо мыши —
 прокрутка, Tab/Shift+Tab — выбор ссылки, Alt+Tab — переключение окон,
 Ctrl+W — закрыть окно, двойной клик по заголовку — развернуть окно,
-правый нижний угол — изменить размер, в терминале — `help`, `pip install NAME`,
-`pip uninstall NAME`, `pip list`.
+правый нижний угол — изменить размер; в терминале — `help`, ↑/↓ — история,
+`ls`, `cd`, `git clone URL`, `pip install NAME`, `pip show NAME`, `pip list`.
 ~~~
 
 ## 5. Заголовок README (первая строка)
@@ -207,7 +216,7 @@ git commit -m "Add bootable ISO, internet browser and lag-free mouse rendering"
 
 ```bash
 gh repo create tiny-os --public --source=. --remote=origin --push \
-  --description "Графическая ОС с нуля для QEMU: окна, мышь, интернет-браузер"
+  --description "ОС для QEMU: окна, мышь, браузер, терминал pip/pkg/git"
 ```
 
 ### Шаг 6. Привяжите удалённый репозиторий и залейте код
@@ -236,7 +245,7 @@ git push -u origin main
 ### Шаг 8. Создайте Release и приложите образы
 
 1. Нажмите **Releases → Create a new release**.
-2. Tag: `gen0.2`, Title: `TINY OS gen0.2`.
+2. Tag: `gen0.3`, Title: `TINY OS gen0.3`.
 3. В поле описания вставьте release notes из раздела 4.
 4. Перетащите вниз в блок **Attach binaries**: `tinyos.iso`, `os.img`, `screenshot.png`.
 5. Нажмите **Publish release**.
