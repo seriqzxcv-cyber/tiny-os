@@ -7,13 +7,13 @@
 ## 1. Описание репозитория (About / Repository description)
 
 ```
-Графическая ОС с нуля: 16-битный загрузчик + 32-битное ядро, VESA 1024x768, окна, мышь, интернет-браузер и терминал с pip/pkg/git. Загружается в QEMU.
+Графическая ОС с нуля: 16-битный загрузчик + 32-битное ядро, VESA 1024x768, окна, мышь, интернет-браузер, калькулятор и терминал с настоящей установкой RPM-пакетов, pip и git. Загружается в QEMU.
 ```
 
 Короткий вариант (до 100 символов):
 
 ```
-ОС для QEMU: окна, мышь, браузер, терминал pip/pkg/git
+ОС для QEMU: окна, браузер, apt/pip, калькулятор
 ```
 
 ## 2. Topics (теги)
@@ -56,6 +56,18 @@ gen0.3:
 - Add git clone/status/log executed by nethelper on the host
 - Make pip install real: install into site-packages, add pip show and version specs
 - Add terminal command history with Up/Down keys
+
+gen0.4:
+- Install real system packages: dnf download --resolve, rpm2cpio/cpio into
+  tinyos_fs, apt_installed.json registry, apt update/search/info/install/
+  remove/list/files/upgrade/clean and which
+- Run installed programs by name inside bwrap with an overlay /usr,
+  isolated network/PID namespaces and a timeout
+- Add a calculator window (F10) with mouse and keyboard input
+- Add an IDT with 32 exception handlers and a KERNEL PANIC screen showing
+  vector, error code and EIP; add panic and beep commands
+- Detect the CPU vendor via CPUID and show uptime in System Info
+- Enlarge terminal replies to 4 KiB, add uptime/uname/history commands
 ```
 
 Короткий вариант:
@@ -67,44 +79,38 @@ Add bootable ISO, internet browser and lag-free mouse rendering
 ## 4. Release notes (для Releases)
 
 ~~~markdown
-## TINY OS gen0.3
+## TINY OS gen0.4
 
 Графическая ОС, которую можно загрузить в QEMU.
-Образ диска занимает 48 128 байт.
+Образ диска занимает 57 344 байт, ISO — 452 608 байт.
 
-### Что внутри
-- **TINY BROWSER**: редактируемая адресная строка, история с BACK/FWD
-  (F6/F7, Ctrl+←/→), кликабельные ссылки, прокрутка, полоса прокрутки и
-  счётчик строк. Поиск через Bing (RSS → кликабельные результаты, работает
-  в России). `nethelper.py` вырезает скрипты и стили перед отдачей страницы.
-  Сеть реальная: COM1 → UNIX socket → urllib.
-- **HTML-рендерер**: заголовки, абзацы, `<hr>`, маркированные и нумерованные
-  списки, `<pre>` с сохранением переносов, `<blockquote>`, `<code>`, `<img alt>`,
-  `<b>`, сущности, `<title>` в строке состояния.
-- **Оболочка**: меню «Пуск», настоящая минимизация, двойной клик по заголовку,
-  клик по неактивному окну, изменение размера окон за правый нижний угол,
-  Alt+Tab, Ctrl+W, 5 тем, колесо мыши, подсветка ссылок.
-- **Клавиатура в браузере**: Tab/Shift+Tab выбирают ссылку, Enter открывает её,
-  Esc снимает фокус; индикатор LOADING во время загрузки.
-- **TINY SHELL (F9)**: терминал с историей команд (↑/↓) и виртуальной ФС:
-  `pwd`, `ls`, `cd`, `mkdir`, `cat`; команды `git clone/status/log` выполняются
-  на хосте через `nethelper.py`.
-- **Notes**: нескольких строк, **Ctrl+S** сохраняет заметку в
-  `tinyos_fs/notes.txt`, **Ctrl+O** загружает её обратно.
-- **Терминал**: история команд (↑/↓), прокрутка вывода PageUp/PageDown
-  и полоса прокрутки.
-- **Пакеты**: `pip install NAME` действительно ставит пакет через pip в
-  `tinyos_fs/site-packages`, `pip show NAME` показывает данные с PyPI,
-  `pip uninstall NAME` удаляет файлы, `pip list` выводит реестр;
-  алиасы `pkg`/`apt`. Версию можно зафиксировать: `pip install name==1.2.3`.
-- **Графика**: пейзаж со звёздами, солнцем и горами, объёмные кнопки,
-  пиксельные иконки приложений, жирные подчёркнутые заголовки, меню с F8,
-  дата, время и мигающие двоеточия из CMOS RTC.
-- **Загрузочный ISO**: `tinyos.iso` грузится через `qemu-system-i386 -cdrom`.
+### Что нового
+- **Настоящий менеджер системных пакетов** `apt` (алиасы `pkg`, `dnf`):
+  `apt update`, `apt search`, `apt show`, `apt install`, `apt remove`,
+  `apt list`, `apt files`, `apt upgrade`, `apt clean`. Хост скачивает RPM
+  вместе с зависимостями через `dnf download --resolve`, пакет
+  распаковывается в `tinyos_fs` через `rpm2cpio | cpio`, реестр
+  `apt_installed.json` хранит версию, размер, архитектуру и файлы.
+- **Запуск установленных программ по имени**: `apt install cowsay`, затем
+  `cowsay HELLO`. Бинарник запускается в `bwrap`: `/usr` собран из
+  хостового `/usr` и `tinyos_fs/usr`, сеть и PID изолированы, стоит
+  таймаут. Проверено на cowsay, figlet, toilet и fortune.
+- **Калькулятор (F10)**: отдельное окно, кнопки мышью и клавиатура,
+  `+ - * /`, Enter, Backspace, C, защита от переполнения.
+- **IDT и KERNEL PANIC**: 256 записей, 32 вектора исключений CPU,
+  экран с номером исключения, кодом ошибки и EIP вместо тихой
+  перезагрузки. Команда `panic` показывает его по `int 3`.
+- **PC speaker**: `beep` играет два тона, паника подаёт сигнал.
+- **CPUID и uptime**: производитель CPU и время работы в SYSTEM INFO,
+  команды `uptime` и `uname`.
+- **Терминал**: ответы до 4 КиБ, 24 строки на экран, длинные таймауты
+  для apt/pip/git, строка прогресса до ожидания, команда `history`.
+- Исправлен Shift+8: теперь `*`, а не `(`.
+- `pip` остаётся отдельным менеджером для Python-пакетов.
 
 ### Файлы
-- `os.img` — загрузочный raw-образ диска (48 128 байт)
-- `tinyos.iso` — загрузочный ISO (El Torito, no emulation)
+- `os.img` — загрузочный raw-образ диска (57 344 байт)
+- `tinyos.iso` — загрузочный ISO (El Torito, no emulation, 452 608 байт)
 - `run.sh` — запуск с интернетом (поднимает `nethelper.py`)
 
 ### Запуск
@@ -115,16 +121,17 @@ qemu-system-i386 -cdrom tinyos.iso -boot d -m 64     # с ISO
 
 ### Управление
 OS или F8 — меню, F1–F3 — окна, F4 — тема, F5 — браузер/обновить,
-F9 — терминал, ESC — стартовая
-страница, ENTER — адрес/домен/поиск или открыть выбранную ссылку,
+F9 — терминал, F10 — калькулятор, ESC — стартовая страница,
+ENTER — адрес/домен/поиск или открыть выбранную ссылку,
 Ctrl+L — новая адресная строка, Ctrl+R — обновить, F6/F7 — история
 назад/вперёд, ←/→ и Home/End — редактирование адреса, Shift+знаки —
 `? & = + _ < > @ # % ! "`, ↑/↓ и PageUp/PageDown — прокрутка, колесо мыши —
 прокрутка, Tab/Shift+Tab — выбор ссылки, Alt+Tab — переключение окон,
 Ctrl+W — закрыть окно, в Notes Ctrl+S/Ctrl+O — сохранить/загрузить,
 двойной клик по заголовку — развернуть окно,
-правый нижний угол — изменить размер; в терминале — `help`, ↑/↓ — история, PageUp/PageDown — прокрутка,
-`ls`, `cd`, `git clone URL`, `pip install NAME`, `pip show NAME`, `pip list`.
+правый нижний угол — изменить размер; в терминале — `help`, ↑/↓ — история,
+PageUp/PageDown — прокрутка, `apt install NAME`, `pip install NAME`,
+`which CMD`, `beep`, `calc`, `panic`.
 ~~~
 
 ## 5. Заголовок README (первая строка)
@@ -221,7 +228,7 @@ git commit -m "Add bootable ISO, internet browser and lag-free mouse rendering"
 
 ```bash
 gh repo create tiny-os --public --source=. --remote=origin --push \
-  --description "ОС для QEMU: окна, мышь, браузер, терминал pip/pkg/git"
+  --description "ОС для QEMU: окна, браузер, apt/pip, калькулятор"
 ```
 
 ### Шаг 6. Привяжите удалённый репозиторий и залейте код
@@ -250,7 +257,7 @@ git push -u origin main
 ### Шаг 8. Создайте Release и приложите образы
 
 1. Нажмите **Releases → Create a new release**.
-2. Tag: `gen0.3`, Title: `TINY OS gen0.3`.
+2. Tag: `gen0.4`, Title: `TINY OS gen0.4`.
 3. В поле описания вставьте release notes из раздела 4.
 4. Перетащите вниз в блок **Attach binaries**: `tinyos.iso`, `os.img`, `screenshot.png`.
 5. Нажмите **Publish release**.

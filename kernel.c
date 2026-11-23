@@ -37,6 +37,230 @@ static inline u32 lerp(u32 a, u32 b, int t) {
                (((a) & 255)       * (100 - t) + ((b) & 255)       * t) / 100);
 }
 
+
+/* ---------------------- CPU exceptions / IDT ---------------------------- */
+typedef struct {
+    u16 off_lo;
+    u16 sel;
+    u8 zero;
+    u8 type;
+    u16 off_hi;
+} __attribute__((packed)) IdtEntry;
+typedef struct {
+    u16 limit;
+    u32 base;
+} __attribute__((packed)) IdtPtr;
+
+static IdtEntry idt[256];
+static IdtPtr idtp;
+static void fault_dispatch(u32 *regs) __attribute__((used));
+
+extern void isr_default(void);
+extern void isr0(void);  extern void isr1(void);  extern void isr2(void);
+extern void isr3(void);  extern void isr4(void);  extern void isr5(void);
+extern void isr6(void);  extern void isr7(void);  extern void isr8(void);
+extern void isr9(void);  extern void isr10(void); extern void isr11(void);
+extern void isr12(void); extern void isr13(void); extern void isr14(void);
+extern void isr15(void); extern void isr16(void); extern void isr17(void);
+extern void isr18(void); extern void isr19(void); extern void isr20(void);
+extern void isr21(void); extern void isr22(void); extern void isr23(void);
+extern void isr24(void); extern void isr25(void); extern void isr26(void);
+extern void isr27(void); extern void isr28(void); extern void isr29(void);
+extern void isr30(void); extern void isr31(void);
+
+__asm__(
+".text\n"
+".global isr_common\n"
+"isr_common:\n"
+"  pushal\n"
+"  pushl %esp\n"
+"  call fault_dispatch\n"
+"  addl $4, %esp\n"
+"  popal\n"
+"  addl $8, %esp\n"
+"  iret\n"
+".global isr_default\n"
+"isr_default:\n"
+"  iret\n"
+".global isr0\n"
+"isr0:\n"
+"  pushl $0\n"
+"  pushl $0\n"
+"  jmp isr_common\n"
+".global isr1\n"
+"isr1:\n"
+"  pushl $0\n"
+"  pushl $1\n"
+"  jmp isr_common\n"
+".global isr2\n"
+"isr2:\n"
+"  pushl $0\n"
+"  pushl $2\n"
+"  jmp isr_common\n"
+".global isr3\n"
+"isr3:\n"
+"  pushl $0\n"
+"  pushl $3\n"
+"  jmp isr_common\n"
+".global isr4\n"
+"isr4:\n"
+"  pushl $0\n"
+"  pushl $4\n"
+"  jmp isr_common\n"
+".global isr5\n"
+"isr5:\n"
+"  pushl $0\n"
+"  pushl $5\n"
+"  jmp isr_common\n"
+".global isr6\n"
+"isr6:\n"
+"  pushl $0\n"
+"  pushl $6\n"
+"  jmp isr_common\n"
+".global isr7\n"
+"isr7:\n"
+"  pushl $0\n"
+"  pushl $7\n"
+"  jmp isr_common\n"
+".global isr8\n"
+"isr8:\n"
+"  pushl $8\n"
+"  jmp isr_common\n"
+".global isr9\n"
+"isr9:\n"
+"  pushl $0\n"
+"  pushl $9\n"
+"  jmp isr_common\n"
+".global isr10\n"
+"isr10:\n"
+"  pushl $10\n"
+"  jmp isr_common\n"
+".global isr11\n"
+"isr11:\n"
+"  pushl $11\n"
+"  jmp isr_common\n"
+".global isr12\n"
+"isr12:\n"
+"  pushl $12\n"
+"  jmp isr_common\n"
+".global isr13\n"
+"isr13:\n"
+"  pushl $13\n"
+"  jmp isr_common\n"
+".global isr14\n"
+"isr14:\n"
+"  pushl $14\n"
+"  jmp isr_common\n"
+".global isr15\n"
+"isr15:\n"
+"  pushl $0\n"
+"  pushl $15\n"
+"  jmp isr_common\n"
+".global isr16\n"
+"isr16:\n"
+"  pushl $0\n"
+"  pushl $16\n"
+"  jmp isr_common\n"
+".global isr17\n"
+"isr17:\n"
+"  pushl $17\n"
+"  jmp isr_common\n"
+".global isr18\n"
+"isr18:\n"
+"  pushl $0\n"
+"  pushl $18\n"
+"  jmp isr_common\n"
+".global isr19\n"
+"isr19:\n"
+"  pushl $0\n"
+"  pushl $19\n"
+"  jmp isr_common\n"
+".global isr20\n"
+"isr20:\n"
+"  pushl $0\n"
+"  pushl $20\n"
+"  jmp isr_common\n"
+".global isr21\n"
+"isr21:\n"
+"  pushl $21\n"
+"  jmp isr_common\n"
+".global isr22\n"
+"isr22:\n"
+"  pushl $0\n"
+"  pushl $22\n"
+"  jmp isr_common\n"
+".global isr23\n"
+"isr23:\n"
+"  pushl $0\n"
+"  pushl $23\n"
+"  jmp isr_common\n"
+".global isr24\n"
+"isr24:\n"
+"  pushl $0\n"
+"  pushl $24\n"
+"  jmp isr_common\n"
+".global isr25\n"
+"isr25:\n"
+"  pushl $0\n"
+"  pushl $25\n"
+"  jmp isr_common\n"
+".global isr26\n"
+"isr26:\n"
+"  pushl $0\n"
+"  pushl $26\n"
+"  jmp isr_common\n"
+".global isr27\n"
+"isr27:\n"
+"  pushl $0\n"
+"  pushl $27\n"
+"  jmp isr_common\n"
+".global isr28\n"
+"isr28:\n"
+"  pushl $0\n"
+"  pushl $28\n"
+"  jmp isr_common\n"
+".global isr29\n"
+"isr29:\n"
+"  pushl $29\n"
+"  jmp isr_common\n"
+".global isr30\n"
+"isr30:\n"
+"  pushl $30\n"
+"  jmp isr_common\n"
+".global isr31\n"
+"isr31:\n"
+"  pushl $0\n"
+"  pushl $31\n"
+"  jmp isr_common\n"
+);
+
+static void idt_set(int n, u32 handler) {
+    idt[n].off_lo = (u16)(handler & 0xFFFF);
+    idt[n].sel = 0x08;
+    idt[n].zero = 0;
+    idt[n].type = 0x8E;
+    idt[n].off_hi = (u16)(handler >> 16);
+}
+
+static void idt_init(void) {
+    static const u32 table[32] = {
+        (u32)isr0,  (u32)isr1,  (u32)isr2,  (u32)isr3,
+        (u32)isr4,  (u32)isr5,  (u32)isr6,  (u32)isr7,
+        (u32)isr8,  (u32)isr9,  (u32)isr10, (u32)isr11,
+        (u32)isr12, (u32)isr13, (u32)isr14, (u32)isr15,
+        (u32)isr16, (u32)isr17, (u32)isr18, (u32)isr19,
+        (u32)isr20, (u32)isr21, (u32)isr22, (u32)isr23,
+        (u32)isr24, (u32)isr25, (u32)isr26, (u32)isr27,
+        (u32)isr28, (u32)isr29, (u32)isr30, (u32)isr31
+    };
+    int i;
+    for (i = 0; i < 256; i++) idt_set(i, (u32)isr_default);
+    for (i = 0; i < 32; i++) idt_set(i, table[i]);
+    idtp.limit = (u16)(sizeof(idt) - 1);
+    idtp.base = (u32)idt;
+    __asm__ volatile ("lidt %0" : : "m"(idtp));
+}
+
 /* --------------------------- serial (host link) ------------------------- */
 /* COM1: "GET <url>\n"  ->  host helper ->  u32 LE length + raw body */
 #define PAGE_BUF ((char *)0xA00000)
@@ -65,6 +289,9 @@ static int link_focus = -1;            /* keyboard-focused link in the browser *
 static int mp_need = 3;
 
 static void compose_full(void);
+static void activate(int i);
+static void calc_key_rect(int k, int *x, int *y, int *w, int *h);
+static void calc_key(char k);
 
 typedef struct {
     int x, y, w, h;
@@ -78,14 +305,20 @@ static int nlinks = 0;
 /* Start menu: 8 = OS button, 200..205 = items, 300.. = page links */
 #define MENU_X 8
 #define MENU_W 232
-#define MENU_H 196
-#define MENU_ITEMS 7
+#define MENU_H 218
+#define MENU_ITEMS 8
+static const char *menu_names[MENU_ITEMS] = {
+    "WELCOME", "SYSTEM", "NOTES", "BROWSER", "TERMINAL", "CALCULATOR",
+    "CHANGE THEME", "CLOSE MENU"
+};
 static int menu_open = 0;
 static int mouse4 = 0;                 /* Intellimouse: 4-byte packets */
 static u32 ticks = 0;
 static int last_click_sec = -1;
 static int last_click_win = -1;
 static int dd_day = 1, dd_month = 1, dd_year = 2026;
+static char cpu_vendor[16] = "UNKNOWN";
+static u32 boot_clock = 0, uptime_sec = 0;
 
 /* PIT channel 0 is used only as a stopwatch for serial timeouts. */
 static void pit_init(void) {
@@ -137,6 +370,35 @@ static int serial_get_ms(u8 *c, u32 ms) {
 }
 
 static int serial_get(u8 *c) { return serial_get_ms(c, 6000); }
+
+static void pit_delay(u32 ms) {
+    u32 prev = pit_read(), acc = 0, now;
+    for (;;) {
+        now = pit_read();
+        if (now < prev) acc += 65536u;
+        prev = now;
+        if ((acc + now) * 1000u / 1193182u >= ms) return;
+    }
+}
+
+/* PC speaker is driven by PIT channel 2. */
+static void speaker_on(u32 hz) {
+    u32 div = 1193182u / (hz ? hz : 1);
+    outb(0x43, 0xB6);
+    outb(0x42, (u8)(div & 0xFF));
+    outb(0x42, (u8)(div >> 8));
+    outb(0x61, (u8)(inb(0x61) | 3));
+}
+
+static void speaker_off(void) {
+    outb(0x61, (u8)(inb(0x61) & 0xFC));
+}
+
+static void beep(u32 hz, u32 ms) {
+    speaker_on(hz);
+    pit_delay(ms);
+    speaker_off();
+}
 
 static void serial_puts(const char *s) {
     while (*s) serial_put((u8)*s++);
@@ -478,6 +740,76 @@ static void draw_num(int x, int y, int v, u32 c) {
     while (i > 0) { draw_char(x, y, b[--i], c); x += 6; }
 }
 
+static const char *exception_name(u32 v) {
+    switch (v) {
+        case 0:  return "DIVIDE ERROR";
+        case 1:  return "DEBUG";
+        case 2:  return "NMI";
+        case 3:  return "BREAKPOINT";
+        case 4:  return "OVERFLOW";
+        case 5:  return "BOUND RANGE";
+        case 6:  return "INVALID OPCODE";
+        case 7:  return "NO FPU";
+        case 8:  return "DOUBLE FAULT";
+        case 10: return "INVALID TSS";
+        case 11: return "SEGMENT NOT PRESENT";
+        case 12: return "STACK FAULT";
+        case 13: return "GENERAL PROTECTION";
+        case 14: return "PAGE FAULT";
+        case 16: return "FPU ERROR";
+        case 17: return "ALIGNMENT CHECK";
+        case 18: return "MACHINE CHECK";
+        case 19: return "SIMD ERROR";
+        default: return "CPU EXCEPTION";
+    }
+}
+
+static void hex_str(char *out, u32 v) {
+    static const char *digits = "0123456789ABCDEF";
+    int i;
+    out[0] = '0'; out[1] = 'x';
+    for (i = 0; i < 8; i++) out[2 + i] = digits[(v >> (28 - i * 4)) & 15];
+    out[10] = 0;
+}
+
+static void __attribute__((noreturn)) kernel_panic(u32 vec, u32 err, u32 eip) {
+    char hex[12];
+    __asm__ volatile ("cli");
+    beep(110, 350);
+    dbuf = (u8 *)fb;
+    rect(0, 0, (int)screen_w, (int)screen_h, RGB(8, 10, 40));
+    rect(0, 0, (int)screen_w, 76, RGB(86, 12, 36));
+    rect(0, 76, (int)screen_w, 2, RGB(240, 90, 100));
+    draw_text2(40, 20, "KERNEL PANIC", RGB(255, 190, 190));
+    draw_text(40, 56, "TINY OS stopped to protect the machine.", RGB(255, 220, 220));
+
+    draw_text(40, 110, "EXCEPTION:", RGB(150, 180, 235));
+    hex_str(hex, vec);
+    draw_text(180, 110, hex, RGB(255, 210, 120));
+    draw_text(260, 110, exception_name(vec), RGB(255, 160, 150));
+
+    draw_text(40, 134, "ERROR CODE:", RGB(150, 180, 235));
+    hex_str(hex, err);
+    draw_text(180, 134, hex, RGB(255, 210, 120));
+    draw_text(40, 158, "EIP:", RGB(150, 180, 235));
+    hex_str(hex, eip);
+    draw_text(180, 158, hex, RGB(255, 210, 120));
+
+    draw_text(40, 200, "THE SYSTEM HAS HALTED. RESTART QEMU TO CONTINUE.",
+              RGB(205, 215, 235));
+    draw_text(40, 220, "IDT IS ACTIVE: 32 EXCEPTION VECTORS INSTALLED.",
+              RGB(130, 160, 210));
+    draw_text(40, 240, "TERMINAL: TYPE 'panic' TO SEE THIS SCREEN AGAIN.",
+              RGB(130, 160, 210));
+    for (;;) __asm__ volatile ("hlt");
+}
+
+static void __attribute__((used, noinline)) fault_dispatch(u32 *regs) {
+    __asm__ volatile ("cli");
+    kernel_panic(regs[8], regs[9], regs[10]);
+    for (;;) __asm__ volatile ("hlt");
+}
+
 static void draw_num2(int x, int y, int v, u32 c) {
     if (v < 10) { draw_char(x, y, '0', c); x += 6; }
     draw_num(x, y, v, c);
@@ -538,6 +870,15 @@ static void draw_app_icon(int x, int y, int idx) {
         rect(x + 1, y + 5, 8, 1, RGB(160, 215, 255));
         rect(x + 5, y + 1, 1, 8, RGB(160, 215, 255));
         frame(x + 3, y + 1, 4, 8, RGB(120, 190, 245));
+    } else if (idx == 5) {                /* calculator */
+        rect(x + 1, y, 9, 10, RGB(58, 48, 28));
+        frame(x + 1, y, 9, 10, RGB(240, 205, 130));
+        rect(x + 2, y + 1, 7, 2, RGB(250, 220, 150));
+        for (i = 0; i < 3; i++) {
+            putp(x + 2, y + 5 + i * 2, RGB(255, 240, 200));
+            putp(x + 4, y + 5 + i * 2, RGB(255, 240, 200));
+            putp(x + 6, y + 5 + i * 2, RGB(255, 240, 200));
+        }
     } else {                              /* terminal */
         rect(x + 1, y, 9, 10, RGB(12, 18, 26));
         frame(x + 1, y, 9, 10, RGB(120, 205, 165));
@@ -585,17 +926,18 @@ typedef struct {
     int kind;                    /* 1 = browser */
 } Win;
 
-#define WIN_N 5
+#define WIN_N 6
 static Win wins[WIN_N] = {
     {  90,  92, 440, 255, 0, 0, 0, 0, "WELCOME TO TINY OS", 1, 1, 0, 0, 1, RGB(14, 34, 66),  0 },
-    { 370, 202, 410, 300, 0, 0, 0, 0, "SYSTEM INFO",       1, 0, 0, 0, 2, RGB(26, 29, 38),  0 },
+    { 370, 150, 410, 380, 0, 0, 0, 0, "SYSTEM INFO",       1, 0, 0, 0, 2, RGB(26, 29, 38),  0 },
     { 220, 345, 390, 250, 0, 0, 0, 0, "NOTES",             1, 0, 0, 0, 3, RGB(16, 48, 38),  0 },
     {  70,  60, 760, 560, 0, 0, 0, 0, "TINY BROWSER",       1, 0, 0, 0, 4, RGB(16, 20, 30),  1 },
     { 120, 180, 560, 350, 0, 0, 0, 0, "TERMINAL",           0, 0, 0, 0, 5, RGB(8, 14, 22),    0 },
+    { 700,  90, 300, 330, 0, 0, 0, 0, "CALCULATOR",         0, 0, 0, 0, 6, RGB(18, 22, 30),   0 },
 };
-static int top_z = 5;
+static int top_z = 6;
 static const char *task_label[WIN_N] = {
-    "WELCOME", "SYSTEM", "NOTES", "BROWSER", "TERMINAL"
+    "WELCOME", "SYSTEM", "NOTES", "BROWSER", "TERMINAL", "CALC"
 };
 
 /* A tiny terminal with a pip/pkg-like package manager. */
@@ -626,6 +968,14 @@ static int wall = 0;
 static char notes[256];
 static int notes_len = 0;
 static char notes_status[40] = "READY";
+
+/* Calculator state (32-bit integer arithmetic). */
+static char calc_disp[16] = "0";
+static int calc_val = 0, calc_acc = 0, calc_new = 1, calc_err = 0;
+static char calc_op = 0;
+static const char calc_keys[17] = {
+    '7','8','9','/', '4','5','6','*', '1','2','3','-', '0','C','B','+', '='
+};
 
 static int mx = 400, my = 300, mb = 0;
 static int old_mx = 400, old_my = 300;
@@ -682,13 +1032,18 @@ static int hover_rect(int id, int *x, int *y, int *w, int *h) {
         *x = 108 + i * 124; *y = (int)screen_h - 33; *w = 116; *h = 26;
         return 1;
     }
-    if (id == 105) {
+    if (id == 500) {
         *x = MENU_X; *y = (int)screen_h - 33; *w = 86; *h = 26;
         return 1;
     }
     if (id >= 200 && id < 200 + MENU_ITEMS) {
         if (!menu_open) return 0;
         menu_item_rect(id - 200, x, y, w, h);
+        return 1;
+    }
+    if (id >= 400 && id < 417) {
+        if (!wins[5].open || wins[5].minimized) return 0;
+        calc_key_rect(id - 400, x, y, w, h);
         return 1;
     }
     if (id >= 300 && id < 300 + MAX_LINKS) {
@@ -709,7 +1064,7 @@ static int hover_rect(int id, int *x, int *y, int *w, int *h) {
 }
 
 static void draw_hover_item(int id, int hot) {
-    if (id == 105) {
+    if (id == 500) {
         int bx = MENU_X, by = (int)screen_h - 33;
         rect(bx, by, 86, 26, hot ? lerp(accent[wall], RGB(255,255,255), 30)
                                   : accent[wall]);
@@ -719,18 +1074,24 @@ static void draw_hover_item(int id, int hot) {
     }
     if (id >= 200 && id < 200 + MENU_ITEMS) {
         int i = id - 200, x, y, w, h;
-        static const char *names[MENU_ITEMS] = {
-            "WELCOME", "SYSTEM", "NOTES", "BROWSER", "TERMINAL", "THEME",
-            "CLOSE MENU"
-        };
         if (!menu_open) return;
         menu_item_rect(i, &x, &y, &w, &h);
         rect(x, y, w, h, hot ? lerp(accent[wall], RGB(255,255,255), 22)
                              : RGB(34, 39, 52));
         if (i < WIN_N) draw_app_icon(x + 2, y + 2, i);
-        else if (i == 5) rect(x + 4, y + 5, 10, 10, accent[wall]);
-        draw_text(x + 17, y + 6, names[i],
+        else if (i == WIN_N) rect(x + 4, y + 5, 10, 10, accent[wall]);
+        draw_text(x + 17, y + 6, menu_names[i],
                   hot ? RGB(255,255,255) : RGB(205, 215, 232));
+        return;
+    }
+    if (id >= 400 && id < 417) {
+        int k = id - 400, kx, ky, kw, kh;
+        char label = calc_keys[k];
+        if (!wins[5].open || wins[5].minimized) return;
+        calc_key_rect(k, &kx, &ky, &kw, &kh);
+        bevel(kx, ky, kw, kh, hot ? RGB(92, 112, 145) : RGB(42, 48, 60), hot);
+        if (label == 'B') draw_text(kx + kw / 2 - 3, ky + 11, "<", RGB(245, 250, 255));
+        else draw_char(kx + kw / 2 - 3, ky + 11, label, RGB(245, 250, 255));
         return;
     }
     if (id >= 300 && id < 300 + MAX_LINKS) {
@@ -1247,11 +1608,24 @@ static void term_print(const char *s) {
     term_count++;
 }
 
-static void term_cat(char *dst, const char *a, const char *b) {
+static void term_catn(char *dst, const char *a, const char *b, int sz) {
     int i = 0, j;
-    while (a[i] && i < 195) { dst[i] = a[i]; i++; }
-    for (j = 0; b[j] && i < 195; j++) dst[i++] = b[j];
+    while (a[i] && i < sz - 1) { dst[i] = a[i]; i++; }
+    for (j = 0; b[j] && i < sz - 1; j++) dst[i++] = b[j];
     dst[i] = 0;
+}
+
+static void term_cat(char *dst, const char *a, const char *b) {
+    term_catn(dst, a, b, 196);
+}
+
+static void num_str(char *out, u32 v) {
+    char tmp[12];
+    int n = 0, j = 0;
+    if (!v) { out[0] = '0'; out[1] = 0; return; }
+    while (v) { tmp[n++] = (char)('0' + (v % 10)); v /= 10; }
+    while (n > 0) out[j++] = tmp[--n];
+    out[j] = 0;
 }
 
 static int term_streq(const char *a, const char *b) {
@@ -1260,8 +1634,8 @@ static int term_streq(const char *a, const char *b) {
     return a[i] == 0 && b[i] == 0;
 }
 
-/* Ask nethelper for package metadata using the same COM1 framing as pages. */
-static int term_request(const char *req, char *out, int outsz) {
+/* Ask nethelper for data using the same COM1 framing as pages. */
+static int term_request_ms(const char *req, char *out, int outsz, u32 ms) {
     u8 c;
     u32 i, n = 0;
     int keep;
@@ -1269,16 +1643,25 @@ static int term_request(const char *req, char *out, int outsz) {
     serial_puts(req);
     serial_put('\n');
     for (i = 0; i < 4; i++) {
-        if (!serial_get_ms(&c, 60000)) return 0;
+        if (!serial_get_ms(&c, ms)) return 0;
         n |= (u32)c << (i * 8);
     }
     if (n == 0 || n > PAGE_MAX) return 0;
     keep = n < (u32)(outsz - 1) ? (int)n : outsz - 1;
     for (i = 0; i < n; i++) {
-        if (!serial_get_ms(&c, 60000)) return 0;
+        if (!serial_get_ms(&c, ms)) return 0;
         if (i < (u32)keep) out[i] = (char)c;
     }
     out[keep] = 0;
+    return 1;
+}
+
+static int term_request(const char *req, char *out, int outsz) {
+    return term_request_ms(req, out, outsz, 60000);
+}
+
+static int term_starts(const char *s, const char *p) {
+    while (*p) { if (*s++ != *p++) return 0; }
     return 1;
 }
 
@@ -1328,7 +1711,7 @@ static void notes_store(int save) {
 static void term_show_reply(char *reply) {
     char *p = reply;
     int shown = 0;
-    while (*p && shown < 16) {
+    while (*p && shown < 24) {
         char *e = p;
         while (*e && *e != '\n') e++;
         char save = *e;
@@ -1341,7 +1724,6 @@ static void term_show_reply(char *reply) {
 }
 
 static void term_save_history(const char *line) {
-    int slot;
     if (!line[0]) return;
     cstr_copy(term_hist[term_hist_count % TERM_HIST], line, TERM_CMD);
     term_hist_count++;
@@ -1363,13 +1745,24 @@ static void term_path(char *dst, const char *arg) {
         return;
     }
     cstr_copy(dst, term_cwd, 100);
-    if (cstrlen(dst) && dst[cstrlen(dst) - 1] != '/') term_cat(dst, dst, "/");
-    term_cat(dst, dst, arg);
+    if (cstrlen(dst) && dst[cstrlen(dst) - 1] != '/') term_catn(dst, dst, "/", 100);
+    term_catn(dst, dst, arg, 100);
+}
+
+static void term_working(const char *msg) {
+    term_print(msg);
+    scene_dirty = 1;
+    compose_full();
 }
 
 static void term_host(const char *req, int show) {
-    char buf[256];
-    if (term_request(req, buf, sizeof(buf))) {
+    char buf[4096];
+    u32 wait = 60000;
+    if (term_starts(req, "APTINSTALL") || term_starts(req, "APTUPDATE") ||
+        term_starts(req, "APTUPGRADE") || term_starts(req, "PIPINSTALL") ||
+        term_starts(req, "GITCLONE"))
+        wait = 180000;
+    if (term_request_ms(req, buf, sizeof(buf), wait)) {
         if (show) term_show_reply(buf);
         scene_dirty = 1;
     } else {
@@ -1379,7 +1772,7 @@ static void term_host(const char *req, int show) {
 }
 
 static void term_exec(void) {
-    char cmd[TERM_CMD], buf[256], path[100], *argv[6];
+    char cmd[TERM_CMD], buf[4096], path[100], *argv[6];
     int argc = 0, i;
     char *p;
     cstr_copy(cmd, term_cmd, sizeof(cmd));
@@ -1399,16 +1792,18 @@ static void term_exec(void) {
     if (argc == 0) { term_cmd[0] = 0; term_pos = 0; return; }
 
     if (term_streq(argv[0], "help")) {
-        term_print("FILES: pwd  ls  cd DIR  mkdir DIR  cat FILE");
+        term_print("FILES: pwd  ls [DIR]  cd DIR  mkdir DIR  cat FILE");
+        term_print("SYSTEM PACKAGES: apt update | apt search TEXT");
+        term_print("  apt install NAME | apt remove NAME | apt list");
+        term_print("  apt show NAME | apt files NAME | apt clean");
+        term_print("PYTHON: pip install NAME | pip show NAME | pip list");
         term_print("GIT: git clone URL | git status | git log");
-        term_print("PACKAGES: pip install PKG | pip show PKG | pip uninstall PKG");
-        term_print("pip list | pkg install PKG | apt install PKG");
-        term_print("SHELL: clear  ver  date  echo TEXT  Up/Down: history");
-        term_print("PageUp/PageDown: scroll terminal output");
+        term_print("SHELL: clear ver date echo uptime uname which CMD beep");
+        term_print("APPS: calc  panic  (Up/Down history, PgUp/PgDn scroll)");
     } else if (term_streq(argv[0], "clear")) {
         term_head = 0; term_count = 0;
     } else if (term_streq(argv[0], "ver")) {
-        term_print("TINY OS gen0.3  /  TINY SHELL 1.1");
+        term_print("TINY OS gen0.4  /  TINY SHELL 1.2");
     } else if (term_streq(argv[0], "date")) {
         buf[0] = (char)('0' + dd_day / 10);
         buf[1] = (char)('0' + dd_day % 10);
@@ -1424,6 +1819,34 @@ static void term_exec(void) {
         term_print(buf);
     } else if (term_streq(argv[0], "echo")) {
         if (argc > 1) term_print(argv[1]); else term_print("");
+    } else if (term_streq(argv[0], "uptime")) {
+        cstr_copy(buf, "UPTIME: ", sizeof(buf));
+        num_str(buf + 8, uptime_sec);
+        term_catn(buf, buf, " SEC", sizeof(buf));
+        term_print(buf);
+    } else if (term_streq(argv[0], "uname")) {
+        term_print("TINY OS gen0.4 i386 / 32-BIT KERNEL / IDT");
+    } else if (term_streq(argv[0], "history")) {
+        for (i = 0; i < term_hist_count; i++) {
+            char nb[8];
+            nb[0] = (char)('0' + (i + 1) / 10);
+            nb[1] = (char)('0' + (i + 1) % 10);
+            nb[2] = ' '; nb[3] = ' '; nb[4] = 0;
+            term_catn(buf, nb, term_hist[i], sizeof(buf));
+            term_print(buf);
+        }
+    } else if (term_streq(argv[0], "beep")) {
+        beep(880, 120);
+        beep(1320, 160);
+        term_print("BEEP");
+    } else if (term_streq(argv[0], "calc")) {
+        activate(5);
+        term_print("Calculator opened.");
+    } else if (term_streq(argv[0], "panic")) {
+        term_print("PANIC: triggering int 3 ...");
+        scene_dirty = 1;
+        compose_full();
+        __asm__ volatile ("int $3");
     } else if (term_streq(argv[0], "pwd")) {
         term_print(term_cwd);
     } else if (term_streq(argv[0], "ls")) {
@@ -1445,10 +1868,13 @@ static void term_exec(void) {
     } else if (term_streq(argv[0], "cat")) {
         if (argc < 2) term_print("usage: cat FILE");
         else { term_path(path, argv[1]); term_cat(buf, "FSCAT ", path); term_host(buf, 1); }
+    } else if (term_streq(argv[0], "which")) {
+        if (argc < 2) term_print("usage: which CMD");
+        else { term_cat(buf, "WHICH ", argv[1]); term_host(buf, 1); }
     } else if (term_streq(argv[0], "git")) {
         if (argc >= 3 && term_streq(argv[1], "clone")) {
             term_cat(buf, "GITCLONE ", argv[2]);
-            term_print("Working...");
+            term_working("Working...");
             term_host(buf, 1);
         } else if (argc >= 2 && term_streq(argv[1], "status")) {
             term_cat(buf, "GITSTATUS ", term_cwd);
@@ -1457,11 +1883,64 @@ static void term_exec(void) {
             term_cat(buf, "GITLOG ", term_cwd);
             term_host(buf, 1);
         } else term_print("usage: git clone URL | git status | git log");
-    } else if (term_streq(argv[0], "pip") || term_streq(argv[0], "pkg") ||
-               term_streq(argv[0], "apt")) {
+    } else if (term_streq(argv[0], "apt") || term_streq(argv[0], "pkg") ||
+               term_streq(argv[0], "dnf")) {
+        if (argc >= 2 && term_streq(argv[1], "update")) {
+            term_working("Refreshing repositories...");
+            term_host("APTUPDATE", 1);
+        } else if (argc >= 3 && (term_streq(argv[1], "install") ||
+                   term_streq(argv[1], "add"))) {
+            cstr_copy(buf, "APTINSTALL", sizeof(buf));
+            for (i = 2; i < argc; i++) {
+                term_catn(buf, buf, " ", sizeof(buf));
+                term_catn(buf, buf, argv[i], sizeof(buf));
+            }
+            term_working("Working: dnf download + unpack...");
+            term_host(buf, 1);
+        } else if (argc >= 3 && (term_streq(argv[1], "remove") ||
+                   term_streq(argv[1], "uninstall") || term_streq(argv[1], "delete"))) {
+            cstr_copy(buf, "APTREMOVE", sizeof(buf));
+            for (i = 2; i < argc; i++) {
+                term_catn(buf, buf, " ", sizeof(buf));
+                term_catn(buf, buf, argv[i], sizeof(buf));
+            }
+            term_host(buf, 1);
+        } else if (argc >= 3 && (term_streq(argv[1], "show") ||
+                   term_streq(argv[1], "info"))) {
+            term_cat(buf, "APTINFO ", argv[2]);
+            term_host(buf, 1);
+        } else if (argc >= 3 && (term_streq(argv[1], "search") ||
+                   term_streq(argv[1], "find"))) {
+            cstr_copy(buf, "APTSEARCH", sizeof(buf));
+            for (i = 2; i < argc; i++) {
+                term_catn(buf, buf, " ", sizeof(buf));
+                term_catn(buf, buf, argv[i], sizeof(buf));
+            }
+            term_host(buf, 1);
+        } else if (argc >= 2 && term_streq(argv[1], "list")) {
+            term_host("APTLIST", 1);
+        } else if (argc >= 3 && term_streq(argv[1], "files")) {
+            term_cat(buf, "APTFILES ", argv[2]);
+            term_host(buf, 1);
+        } else if (argc >= 2 && (term_streq(argv[1], "upgrade") ||
+                   term_streq(argv[1], "update-all"))) {
+            cstr_copy(buf, "APTUPGRADE", sizeof(buf));
+            for (i = 2; i < argc; i++) {
+                term_catn(buf, buf, " ", sizeof(buf));
+                term_catn(buf, buf, argv[i], sizeof(buf));
+            }
+            term_working("Checking for upgrades...");
+            term_host(buf, 1);
+        } else if (argc >= 2 && term_streq(argv[1], "clean")) {
+            term_host("APTCLEAN", 1);
+        } else {
+            term_print("usage: apt update | search TEXT | install NAME");
+            term_print("apt remove NAME | list | show NAME | files NAME");
+        }
+    } else if (term_streq(argv[0], "pip")) {
         if (argc >= 3 && (term_streq(argv[1], "install") || term_streq(argv[1], "add"))) {
             term_cat(buf, "PIPINSTALL ", argv[2]);
-            term_print("Working...");
+            term_working("Working...");
             term_host(buf, 1);
         } else if (argc >= 3 && (term_streq(argv[1], "uninstall") ||
                    term_streq(argv[1], "remove") || term_streq(argv[1], "delete"))) {
@@ -1476,9 +1955,14 @@ static void term_exec(void) {
             term_print("usage: pip install PKG | pip show PKG | pip uninstall PKG | pip list");
         }
     } else {
-        term_cat(buf, "unknown command: ", argv[0]);
-        term_print(buf);
-        term_print("type 'help' for the command list");
+        /* Run a program installed by apt in the host sandbox. */
+        cstr_copy(buf, "EXECCD ", sizeof(buf));
+        term_catn(buf, buf, term_cwd, sizeof(buf));
+        for (i = 0; i < argc; i++) {
+            term_catn(buf, buf, " ", sizeof(buf));
+            term_catn(buf, buf, argv[i], sizeof(buf));
+        }
+        term_host(buf, 1);
     }
     term_cmd[0] = 0;
     term_pos = 0;
@@ -1518,6 +2002,118 @@ static void draw_terminal(Win *w) {
     if (w->active) rect(x + 20 + term_pos * 6, i, 4, 10, RGB(255, 255, 255));
 }
 
+static void calc_text(char *out, int v) {
+    char tmp[12];
+    int n = 0, j = 0, neg = 0;
+    unsigned uv;
+    if (v < 0) { neg = 1; uv = (unsigned)(-(v + 1)) + 1u; } else uv = (unsigned)v;
+    do { tmp[n++] = (char)('0' + (int)(uv % 10)); uv /= 10; } while (uv);
+    if (neg) out[j++] = '-';
+    while (n > 0) out[j++] = tmp[--n];
+    out[j] = 0;
+}
+
+static void calc_show(void) { calc_text(calc_disp, calc_val); }
+
+static void calc_reset(void) {
+    calc_val = 0; calc_acc = 0; calc_op = 0;
+    calc_new = 1; calc_err = 0;
+    cstr_copy(calc_disp, "0", sizeof(calc_disp));
+}
+
+static void calc_overflow(void) {
+    calc_err = 1;
+    calc_op = 0;
+    cstr_copy(calc_disp, "OVERFLOW", sizeof(calc_disp));
+}
+
+static void calc_apply(void) {
+    int a = calc_acc, b = calc_val;
+    if (!calc_op) return;
+    if (calc_op == '+') {
+        if ((b > 0 && a > 99999999 - b) || (b < 0 && a < -99999999 - b)) { calc_overflow(); return; }
+        calc_acc = a + b;
+    } else if (calc_op == '-') {
+        if ((b < 0 && a > 99999999 + b) || (b > 0 && a < -99999999 + b)) { calc_overflow(); return; }
+        calc_acc = a - b;
+    } else if (calc_op == '*') {
+        if (a != 0 && (b > 99999999 / a || b < -99999999 / a)) { calc_overflow(); return; }
+        calc_acc = a * b;
+    } else if (calc_op == '/') {
+        if (b == 0) {
+            calc_err = 1; calc_op = 0;
+            cstr_copy(calc_disp, "DIV BY 0", sizeof(calc_disp));
+            return;
+        }
+        calc_acc = a / b;
+    }
+    calc_val = calc_acc;
+    calc_show();
+}
+
+static void calc_key(char k) {
+    if (calc_err && k != 'C') calc_reset();
+    if (k >= '0' && k <= '9') {
+        int d = k - '0';
+        if (calc_new) { calc_val = d; calc_new = 0; }
+        else if (calc_val > 9999999 || calc_val < -9999999) { calc_overflow(); return; }
+        else calc_val = calc_val * 10 + (calc_val < 0 ? -d : d);
+        calc_show();
+    } else if (k == '+' || k == '-' || k == '*' || k == '/') {
+        if (calc_op && !calc_new) calc_apply();
+        if (calc_err) return;
+        calc_acc = calc_val;
+        calc_op = k;
+        calc_new = 1;
+    } else if (k == '=') {
+        if (calc_op && !calc_new) {
+            calc_apply();
+            calc_op = 0;
+            calc_new = 1;
+        }
+    } else if (k == 'C') {
+        calc_reset();
+    } else if (k == 'B') {
+        if (calc_err) calc_reset();
+        else if (!calc_new) {
+            calc_val /= 10;
+            calc_show();
+        }
+    }
+    scene_dirty = 1;
+}
+
+static void calc_key_rect(int k, int *x, int *y, int *w, int *h) {
+    Win *c = &wins[5];
+    int gx = c->x + 16, gy = c->y + 118;
+    if (k == 16) { *x = gx; *y = gy + 4 * 36; *w = 268; *h = 32; return; }
+    *x = gx + (k % 4) * 67;
+    *y = gy + (k / 4) * 36;
+    *w = 63;
+    *h = 32;
+}
+
+static void draw_calculator(Win *w) {
+    int x = w->x + 16, y = w->y + 52, k;
+    rect(x, y, w->w - 32, 56, RGB(6, 12, 20));
+    frame(x, y, w->w - 32, 56, RGB(90, 120, 160));
+    draw_text(x + 8, y + 6, calc_err ? "ERROR" : (calc_op ? "OPERATION" : "READY"),
+              calc_err ? RGB(255, 140, 120) : RGB(130, 190, 230));
+    draw_text2(x + w->w - 40 - cstrlen(calc_disp) * 12, y + 24, calc_disp, RGB(255, 225, 150));
+
+    for (k = 0; k < 17; k++) {
+        int kx, ky, kw, kh;
+        u32 base = RGB(42, 48, 60);
+        char label = calc_keys[k];
+        calc_key_rect(k, &kx, &ky, &kw, &kh);
+        if (label == '=' || label == 'C') base = RGB(120, 70, 45);
+        else if (label == '+' || label == '-' || label == '*' || label == '/') base = RGB(52, 70, 92);
+        bevel(kx, ky, kw, kh, base, 0);
+        if (label == 'B') draw_text(kx + kw / 2 - 3, ky + 11, "<", RGB(235, 240, 250));
+        else draw_char(kx + kw / 2 - 3, ky + 11, label, RGB(235, 240, 250));
+    }
+}
+
 static void window_content(Win *w) {
     int x = w->x + 16, y = w->y + 52;
     int sy = w->y + w->h - 24;
@@ -1535,6 +2131,7 @@ static void window_content(Win *w) {
         draw_text(x, y + 124,"TAB: LINK  ENTER: OPEN", RGB(165, 190, 225));
         draw_text(x, y + 140,"F1-F4 WINDOWS  F5 BROWSER", RGB(165, 190, 225));
         draw_text(x, y + 156,"OS OR F8: START MENU", RGB(165, 190, 225));
+        draw_text(x, y + 172,"F9 TERMINAL   F10 CALCULATOR", RGB(165, 190, 225));
     } else if (w == &wins[1]) {
         draw_text(x, y,      "SYSTEM INFORMATION", RGB(150, 205, 255));
         rect(x, y + 18, w->w - 32, 2, RGB(70, 80, 100));
@@ -1564,8 +2161,16 @@ static void window_content(Win *w) {
         draw_num(x + 84, y + 200, nlinks, RGB(255, 215, 120));
         draw_text(x + 120, y + 200, "PAGE LINES: ", RGB(140, 170, 210));
         draw_num(x + 192, y + 200, page_lines, RGB(255, 215, 120));
+        draw_text(x, y + 216, "CPU: ", RGB(140, 170, 210));
+        draw_text(x + 30, y + 216, cpu_vendor, RGB(255, 215, 120));
+        draw_text(x, y + 232, "IDT: 32 EXCEPTION VECTORS", RGB(210, 215, 225));
+        draw_text(x, y + 248, "UPTIME: ", RGB(140, 170, 210));
+        draw_num(x + 48, y + 248, (int)uptime_sec, RGB(255, 215, 120));
+        draw_text(x + 78, y + 248, " SEC", RGB(140, 170, 210));
     } else if (w == &wins[4]) {
         draw_terminal(w);
+    } else if (w == &wins[5]) {
+        draw_calculator(w);
     } else {
         draw_text(x, y, "TYPE WITH THE KEYBOARD:", RGB(150, 230, 180));
         rect(x, y + 18, w->w - 32, 2, RGB(60, 120, 90));
@@ -1585,7 +2190,7 @@ static void window_content(Win *w) {
         draw_num(w->x + w->w - 150, sy, (int)page_len, RGB(155, 210, 180));
         draw_text(w->x + w->w - 100, sy, "BYTES", RGB(120, 170, 150));
     } else if (w == &wins[4]) {
-        draw_text(w->x + 10, sy, "TINY SHELL - PIP / PKG", RGB(120, 200, 165));
+        draw_text(w->x + 10, sy, "TINY SHELL - APT / PIP", RGB(120, 200, 165));
         draw_text(w->x + w->w - 160, sy, "F9: TERMINAL", RGB(160, 190, 225));
         draw_text(w->x + w->w - 70, sy, "READY", RGB(120, 200, 150));
     } else if (w == &wins[2]) {
@@ -1593,7 +2198,7 @@ static void window_content(Win *w) {
         draw_text(w->x + w->w - 178, sy, "CTRL+S / CTRL+O", RGB(160, 190, 225));
         draw_text(w->x + w->w - 70, sy, "READY", RGB(120, 200, 150));
     } else {
-        draw_text(w->x + 10, sy, "TINY OS gen0.3", RGB(120, 150, 185));
+        draw_text(w->x + 10, sy, "TINY OS gen0.4", RGB(120, 150, 185));
         draw_text(w->x + w->w - 132, sy, theme_name[wall], RGB(160, 190, 225));
         draw_text(w->x + w->w - 70, sy, "READY", RGB(120, 200, 150));
     }
@@ -1676,12 +2281,12 @@ static void draw_all(void) {
     }
 
     draw_text2((int)screen_w / 2 - 82, 46, "TINY OS", RGB(175, 220, 255));
-    draw_text((int)screen_w / 2 - 116, 68, "GRAPHICAL OS FOR QEMU  -  gen0.3", RGB(120, 160, 210));
+    draw_text((int)screen_w / 2 - 116, 68, "GRAPHICAL OS FOR QEMU  -  gen0.4", RGB(120, 160, 210));
     rect((int)screen_w / 2 - 130, 82, 260, 2, RGB(70, 130, 200));
 
     rect(0, (int)screen_h - 40, (int)screen_w, 40, RGB(24, 27, 34));
     rect(0, (int)screen_h - 40, (int)screen_w, 2, accent[wall]);
-    draw_hover_item(105, 0);
+    draw_hover_item(500, 0);
 
     for (i = 0; i < WIN_N; i++)
         draw_hover_item(100 + i, 0);
@@ -1714,15 +2319,11 @@ static void draw_all(void) {
             menu_item_rect(i, &x, &y, &w, &h);
             rect(x, y, w, h, RGB(34, 39, 52));
             if (i < WIN_N) draw_app_icon(x + 2, y + 2, i);
-            else if (i == 5) rect(x + 4, y + 5, 10, 10, accent[wall]);
-            draw_text(x + 17, y + 6,
-                      i == 0 ? "WELCOME" : i == 1 ? "SYSTEM" : i == 2 ? "NOTES" :
-                      i == 3 ? "BROWSER" : i == 4 ? "TERMINAL" :
-                      i == 5 ? "CHANGE THEME" : "CLOSE MENU",
-                      RGB(205, 215, 232));
+            else if (i == WIN_N) rect(x + 4, y + 5, 10, 10, accent[wall]);
+            draw_text(x + 17, y + 6, menu_names[i], RGB(205, 215, 232));
         }
         rect(MENU_X + 6, my0 + MENU_H - 20, MENU_W - 12, 1, RGB(70, 82, 104));
-        draw_text(MENU_X + 8, my0 + MENU_H - 16, "TINY OS gen0.3", RGB(130, 160, 200));
+        draw_text(MENU_X + 8, my0 + MENU_H - 16, "TINY OS gen0.4", RGB(130, 160, 200));
         draw_text(MENU_X + MENU_W - 88, my0 + MENU_H - 16, theme_name[wall], RGB(180, 205, 235));
     }
 }
@@ -1838,7 +2439,14 @@ static int compute_hover(void) {
         return -1;
     }
     if (mx >= MENU_X && mx < MENU_X + 86 &&
-        my >= (int)screen_h - 33 && my < (int)screen_h - 7) return 105;
+        my >= (int)screen_h - 33 && my < (int)screen_h - 7) return 500;
+    if (wins[5].open && !wins[5].minimized && window_at(mx, my) == 5) {
+        int k, kx, ky, kw, kh;
+        for (k = 0; k < 17; k++) {
+            calc_key_rect(k, &kx, &ky, &kw, &kh);
+            if (mx >= kx && mx < kx + kw && my >= ky && my < ky + kh) return 400 + k;
+        }
+    }
     if (wins[3].open && !wins[3].minimized && window_at(mx, my) == 3) {
         for (i = 0; i < nlinks; i++)
             if (mx >= links[i].x - 2 && mx < links[i].x + links[i].w + 2 &&
@@ -1914,7 +2522,7 @@ static void mouse_packet(u8 *p) {
                     menu_item_rect(i, &x, &y, &w, &h);
                     if (mx >= x && mx < x + w && my >= y && my < y + h) {
                         if (i < WIN_N) activate(i);
-                        else if (i == 5) { wall = (wall + 1) % 5; cstr_copy(status_msg, theme_name[wall], sizeof(status_msg)); }
+                        else if (i == WIN_N) { wall = (wall + 1) % 5; cstr_copy(status_msg, theme_name[wall], sizeof(status_msg)); }
                         menu_open = 0;
                         scene_dirty = 1;
                         goto after_click;
@@ -1994,6 +2602,20 @@ static void mouse_packet(u8 *p) {
             if (under >= 0 && !wins[under].active) {
                 activate(under);
                 scene_dirty = 1;
+            }
+        }
+
+        /* calculator keypad */
+        if (wins[5].open && !wins[5].minimized && window_at(mx, my) == 5) {
+            int k, kx, ky, kw, kh;
+            for (k = 0; k < 17; k++) {
+                calc_key_rect(k, &kx, &ky, &kw, &kh);
+                if (mx >= kx && mx < kx + kw && my >= ky && my < ky + kh) {
+                    activate(5);
+                    calc_key(calc_keys[k]);
+                    scene_dirty = 1;
+                    goto after_click;
+                }
             }
         }
 
@@ -2154,9 +2776,9 @@ static char shifted_char(char c) {
             case '3': return '#';
             case '5': return '%';
             case '7': return '&';
-            case '8': return '(';
-            case '9': return ')';
-            case '0': return '(';
+            case '8': return '*';
+            case '9': return '(';
+            case '0': return ')';
         }
     }
     if (c == '-') return '_';
@@ -2284,6 +2906,25 @@ static void key_byte(u8 sc) {
         if (term_count == 0) term_print("TINY SHELL - type 'help' for commands.");
         scene_dirty = 1;
         return;
+    }
+    if (sc == 0x44) {                      /* F10: calculator */
+        activate(5);
+        scene_dirty = 1;
+        return;
+    }
+    if (wins[5].active && wins[5].open) {
+        char cc = scmap[sc];
+        if (cc >= 'A' && cc <= 'Z' && !shift_down) cc += 32;
+        if (shift_down && cc) cc = shifted_char(cc);
+        if (sc == 0x1C) { calc_key('='); return; }
+        if (sc == 0x0E) { calc_key('B'); return; }
+        if (sc == 0x01) { calc_key('C'); return; }
+        if (cc >= '0' && cc <= '9') { calc_key(cc); return; }
+        if (cc == '+' || cc == '-' || cc == '*' || cc == '/' || cc == '=') {
+            calc_key(cc);
+            return;
+        }
+        if (cc == 'c' || cc == 'C') { calc_key('C'); return; }
     }
     if (wins[4].active && wins[4].open) {
         int tlen = cstrlen(term_cmd), k;
@@ -2527,6 +3168,19 @@ static void mouse_init(void) {
 /* ------------------------------ RTC clock ------------------------------- */
 static int bcd2(u8 v) { return ((v >> 4) & 0x0F) * 10 + (v & 0x0F); }
 
+static void cpu_detect(void) {
+    u32 a, b, c, d, regs[3];
+    int r, k, i = 0;
+    __asm__ volatile ("cpuid" : "=a"(a), "=b"(b), "=c"(c), "=d"(d) : "a"(0));
+    regs[0] = b; regs[1] = d; regs[2] = c;
+    for (r = 0; r < 3; r++)
+        for (k = 0; k < 4; k++) {
+            char ch = (char)((regs[r] >> (k * 8)) & 0xFF);
+            if (ch && i < 15) cpu_vendor[i++] = ch;
+        }
+    cpu_vendor[i] = 0;
+}
+
 static void read_clock(void) {
     u8 h, m, s, d, mo, y;
     outb(0x70, 0x85); h = inb(0x71);
@@ -2561,19 +3215,29 @@ void kernel_main(void) {
     screen_buf = (u8 *)0x600000; /* 0x600000 - 0x840000 */
     dbuf = scene;
 
+    idt_init();
     serial_init();
+    cpu_detect();
     url_len = cstrlen(page_url);
     page_home();
     mouse_init();
     read_clock();
-    last_clock = hh * 3600 + mm * 60 + ss;
+    boot_clock = (u32)(hh * 3600 + mm * 60 + ss);
+    last_clock = (int)boot_clock;
 
     for (;;) {
         ticks++;
         poll_input();
         read_clock();
         if (hh * 3600 + mm * 60 + ss != last_clock) {
-            last_clock = hh * 3600 + mm * 60 + ss;
+            u32 now = (u32)(hh * 3600 + mm * 60 + ss);
+            last_clock = (int)now;
+            if (now >= boot_clock)
+                uptime_sec = now - boot_clock;
+            else if (boot_clock - now > 43200u)
+                uptime_sec = now + 86400u - boot_clock;
+            else
+                uptime_sec = 0;  /* clock stepped back slightly at boot */
             scene_dirty = 1;
         }
         if (scene_dirty) {

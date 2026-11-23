@@ -6,3 +6,5 @@ os-cd.img
 __pycache__/
 installed_packages.json
 tinyos_fs/
+apt_installed.json
+pkg_cache/
