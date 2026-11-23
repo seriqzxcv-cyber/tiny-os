@@ -82,7 +82,7 @@ Add bootable ISO, internet browser and lag-free mouse rendering
 ## TINY OS gen0.4
 
 Графическая ОС, которую можно загрузить в QEMU.
-Образ диска занимает 57 344 байт, ISO — 452 608 байт.
+Образ диска занимает 57 856 байт, ISO — 454 656 байт.
 
 ### Что нового
 - **Настоящий менеджер системных пакетов** `apt` (алиасы `pkg`, `dnf`):
@@ -109,8 +109,8 @@ Add bootable ISO, internet browser and lag-free mouse rendering
 - `pip` остаётся отдельным менеджером для Python-пакетов.
 
 ### Файлы
-- `os.img` — загрузочный raw-образ диска (57 344 байт)
-- `tinyos.iso` — загрузочный ISO (El Torito, no emulation, 452 608 байт)
+- `os.img` — загрузочный raw-образ диска (57 856 байт)
+- `tinyos.iso` — загрузочный ISO (El Torito, no emulation, 454 656 байт)
 - `run.sh` — запуск с интернетом (поднимает `nethelper.py`)
 
 ### Запуск

@@ -1724,29 +1724,43 @@ static void term_show_reply(char *reply) {
 }
 
 static void term_save_history(const char *line) {
+    int i;
     if (!line[0]) return;
-    cstr_copy(term_hist[term_hist_count % TERM_HIST], line, TERM_CMD);
-    term_hist_count++;
-    if (term_hist_count > TERM_HIST) term_hist_count = TERM_HIST;
+    if (term_hist_count < TERM_HIST) {
+        cstr_copy(term_hist[term_hist_count], line, TERM_CMD);
+        term_hist_count++;
+    } else {
+        for (i = 0; i < TERM_HIST - 1; i++)
+            cstr_copy(term_hist[i], term_hist[i + 1], TERM_CMD);
+        cstr_copy(term_hist[TERM_HIST - 1], line, TERM_CMD);
+    }
     term_hist_pos = term_hist_count;
 }
 
 /* Build a path shown in the shell ("/" is tinyos_fs on the host). */
 static void term_path(char *dst, const char *arg) {
-    if (arg[0] == '/') { cstr_copy(dst, arg, 100); return; }
-    if (term_streq(arg, ".") || !arg[0]) { cstr_copy(dst, term_cwd, 100); return; }
-    if (term_streq(arg, "..")) {
-        int n = cstrlen(term_cwd);
-        while (n > 1 && term_cwd[n - 1] == '/') n--;
-        while (n > 1 && term_cwd[n - 1] != '/') n--;
-        if (n > 1) n--;
-        cstr_copy(dst, term_cwd, n + 1);
-        dst[n] = 0;
-        return;
+    char buf[100], comp[40];
+    int len = 0, i = 0, c, k;
+    buf[0] = 0;
+    if (arg[0] != '/') { cstr_copy(buf, term_cwd, sizeof(buf)); len = cstrlen(buf); }
+    while (arg[i]) {
+        while (arg[i] == '/') i++;
+        c = 0;
+        while (arg[i] && arg[i] != '/' && c < 39) comp[c++] = arg[i++];
+        comp[c] = 0;
+        if (!c || term_streq(comp, ".")) continue;
+        if (term_streq(comp, "..")) {
+            while (len > 0 && buf[len - 1] == '/') len--;
+            while (len > 0 && buf[len - 1] != '/') len--;
+            buf[len] = 0;
+            continue;
+        }
+        if (len == 0 || buf[len - 1] != '/') { if (len < 98) buf[len++] = '/'; }
+        for (k = 0; k < c && len < 98; k++) buf[len++] = comp[k];
+        buf[len] = 0;
     }
-    cstr_copy(dst, term_cwd, 100);
-    if (cstrlen(dst) && dst[cstrlen(dst) - 1] != '/') term_catn(dst, dst, "/", 100);
-    term_catn(dst, dst, arg, 100);
+    if (len == 0) { buf[0] = '/'; buf[1] = 0; }
+    cstr_copy(dst, buf, 100);
 }
 
 static void term_working(const char *msg) {
@@ -1818,7 +1832,12 @@ static void term_exec(void) {
         buf[10] = 0;
         term_print(buf);
     } else if (term_streq(argv[0], "echo")) {
-        if (argc > 1) term_print(argv[1]); else term_print("");
+        buf[0] = 0;
+        for (i = 1; i < argc; i++) {
+            if (i > 1) term_catn(buf, buf, " ", sizeof(buf));
+            term_catn(buf, buf, argv[i], sizeof(buf));
+        }
+        term_print(buf);
     } else if (term_streq(argv[0], "uptime")) {
         cstr_copy(buf, "UPTIME: ", sizeof(buf));
         num_str(buf + 8, uptime_sec);
@@ -2037,7 +2056,9 @@ static void calc_apply(void) {
         if ((b < 0 && a > 99999999 + b) || (b > 0 && a < -99999999 + b)) { calc_overflow(); return; }
         calc_acc = a - b;
     } else if (calc_op == '*') {
-        if (a != 0 && (b > 99999999 / a || b < -99999999 / a)) { calc_overflow(); return; }
+        unsigned ua = a < 0 ? (unsigned)(-(a + 1)) + 1u : (unsigned)a;
+        unsigned ub = b < 0 ? (unsigned)(-(b + 1)) + 1u : (unsigned)b;
+        if (ua != 0 && ub > 99999999u / ua) { calc_overflow(); return; }
         calc_acc = a * b;
     } else if (calc_op == '/') {
         if (b == 0) {
@@ -2732,6 +2753,7 @@ after_click:
         if (w->kind == 1) { minw = 460; minh = 320; }
         else if (w == &wins[0]) { minw = 360; minh = 240; }
         else if (w == &wins[1]) { minw = 360; minh = 290; }
+        else if (w == &wins[5]) { minw = 300; minh = 320; }
         else { minw = 300; minh = 230; }
         if (nw < minw) nw = minw;
         if (nh < minh) nh = minh;

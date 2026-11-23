@@ -611,6 +611,20 @@ def run_cmd(argv: list, timeout: int = 60) -> str:
     return text[:4000] if text else "Done."
 
 
+def git_repo_path(rel: str):
+    """Return the host path only if it is itself a git repository root."""
+    try:
+        path = fs_path(rel or ".")
+    except ValueError:
+        return None
+    rc, out = run_host(["git", "-C", path, "rev-parse", "--show-toplevel"], 10)
+    if rc != 0:
+        return None
+    if os.path.normpath(out.strip()) != os.path.normpath(path):
+        return None
+    return path
+
+
 def git_clone(url: str) -> str:
     parsed = urllib.parse.urlsplit(url)
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
@@ -704,9 +718,15 @@ def shell_command(line: str) -> str:
     if cmd == "GITCLONE":
         return git_clone(" ".join(parts[1:]))
     if cmd == "GITSTATUS":
-        return run_cmd(["git", "-C", fs_path(arg or "."), "status", "--short", "--branch"], 20)
+        path = git_repo_path(arg)
+        if path is None:
+            return "Not a git repository: %s" % (arg or "/")
+        return run_cmd(["git", "-C", path, "status", "--short", "--branch"], 20)
     if cmd == "GITLOG":
-        return run_cmd(["git", "-C", fs_path(arg or "."), "log", "--oneline", "-8"], 20)
+        path = git_repo_path(arg)
+        if path is None:
+            return "Not a git repository: %s" % (arg or "/")
+        return run_cmd(["git", "-C", path, "log", "--oneline", "-8"], 20)
     if cmd in ("PIPINSTALL", "PKGINSTALL"):
         return pip_install(" ".join(parts[1:]))
     if cmd in ("PIPUNINSTALL", "PKGUNINSTALL"):
