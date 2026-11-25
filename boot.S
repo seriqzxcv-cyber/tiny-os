@@ -122,10 +122,10 @@ bss_done:
     cmpw    $0x004F, %ax
     jne     halt
 
-    /* --- VESA: get mode info into 2000:0000 --- */
+    /* --- VESA: get mode info into 0800:0000 (below the kernel at 0x10000) --- */
     movw    $0x4F01, %ax
     movw    $0x0118, %cx
-    movw    $0x2000, %bx
+    movw    $0x0800, %bx
     movw    %bx, %es
     xorw    %di, %di
     int     $0x10

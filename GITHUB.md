@@ -7,7 +7,7 @@
 ## 1. Описание репозитория (About / Repository description)
 
 ```
-Графическая ОС с нуля: 16-битный загрузчик + 32-битное ядро, VESA 1024x768, окна, мышь, интернет-браузер, планировщик задач, текстовый редактор, игра SNAKE и терминал с настоящими RPM-пакетами, pip и git. Загружается в QEMU.
+Графическая ОС с нуля: 16-битный загрузчик + 32-битное ядро, VESA 1024x768, окна, мышь, интернет-браузер с закладками, планировщик задач, текстовый редактор, игра SNAKE и терминал с RPM-пакетами, pip, git, архивами и сетевыми утилитами. Загружается в QEMU.
 ```
 
 Короткий вариант (до 100 символов):
@@ -69,6 +69,14 @@ gen0.5:
   zero the kernel BSS and make the ISO copy overlap-safe
 - Enlarge the taskbar to eight windows and fix the window/menu hover IDs
 
+gen0.6:
+- Add stat, hardlink, reflink, sync, tar/zip archive tools and local imports
+- Add browser bookmarks, page caching and forced reload
+- Add ping, dns, ipconfig, netstat and wget commands
+- Add users/logname and sudo handling for installed programs
+- Move the VESA scratch buffer away from the kernel: it overwrote scmap
+  when the kernel grew past 0x20000 and broke the keyboard
+
 gen0.4:
 - Install real system packages: dnf download --resolve, rpm2cpio/cpio into
   tinyos_fs, apt_installed.json registry, apt update/search/info/install/
@@ -91,37 +99,31 @@ Add bootable ISO, internet browser and lag-free mouse rendering
 ## 4. Release notes (для Releases)
 
 ~~~markdown
-## TINY OS gen0.5
+## TINY OS gen0.6
 
 Графическая ОС, которую можно загрузить в QEMU.
-Образ диска занимает 67 072 байт, ISO — 462 848 байт.
+Образ диска занимает 71 168 байт, ISO — 471 040 байт.
 
 ### Что нового
-- **Кооперативные задачи**: планировщик на таймере PIT выполняет фоновые
-  задачи (часы, звук, игра). Окно **TASK MANAGER (F11)** показывает id,
-  состояние, счётчики и полосы активности. Команды `ps`, `kill N`,
-  `resume N`, `top` работают из терминала. Это задачи ядра, а не процессы
-  Linux.
-- **SNAKE (F12)**: игра со змейкой, управление стрелками, Space — старт и
-  рестарт, счёт и рекорд в окне. Движение змейки — отдельная задача
-  планировщика.
-- **Звук**: три коротких мелодии через `play 0`, `play 1`, `play 2` и
-  `stop`; звук выводится через PC speaker (канал 2 PIT).
-- **Текстовый редактор**: `edit FILE` загружает файл в окно редактора,
-  Ctrl+S сохраняет его по тому же пути, Ctrl+O перечитывает с диска.
-- **Файлы**: `touch`, `mv`, `cp`, `rm`, `du`, `tree`, `head`, `tail`, `wc`
-  работают с виртуальной ФС `tinyos_fs` на хосте.
-- **Системные утилиты**: `dmesg` (журнал ядра), `free` (память по CMOS),
-  `df`, `du`.
-- **Исправления загрузки**: корректные интервалы PIT, загрузка больших
-  ядер порциями по 32 сектора через LBA, очистка BSS и безопасное
-  копирование ядра с ISO при перекрытии исходного и целевого участков.
-- **Интерфейс**: панель задач на 8 окон, новый пункт меню, исправлены
-  конфликты hover-идентификаторов.
+- **Файловая система**: `stat`, `hardlink`, `reflink`, `sync`, распаковка
+  архивов `tarx/tarl` и `zipx/zipl`, импорт локальных Python-пакетов
+  и системных бинарников.
+- **Браузер**: закладки (`Ctrl+D` добавить, `Ctrl+B` открыть, `bookmark`
+  в терминале), кэш страниц (`cache list`, `cache clear`) и настоящая
+  перезагрузка страницы через `Ctrl+R`.
+- **Сеть**: `ping HOST`, `dns HOST`, `ipconfig`, `netstat`, `wget URL`
+  через хост-помощника.
+- **Пользователи**: `users`, `logname`; системные программы запускаются
+  с `sudo`, если оно доступно на хосте.
+- **Исправление загрузки**: VESA-буфер перенёсся из `0x20000` в `0x8000`.
+  При выросшем ядре он перекрывал таблицу сканкодов `scmap` и ломал
+  клавиатуру.
+- Сохранены все возможности gen0.5: задачи, SNAKE, звук, редактор,
+  IDT/panic, настоящие RPM-пакеты и pip.
 
 ### Файлы
-- `os.img` — загрузочный raw-образ диска (67 072 байт)
-- `tinyos.iso` — загрузочный ISO (El Torito, no emulation, 462 848 байт)
+- `os.img` — загрузочный raw-образ диска (71 168 байт)
+- `tinyos.iso` — загрузочный ISO (El Torito, no emulation, 471 040 байт)
 - `run.sh` — запуск с интернетом (поднимает `nethelper.py`)
 
 ### Запуск
@@ -129,16 +131,6 @@ Add bootable ISO, internet browser and lag-free mouse rendering
 ./run.sh                                             # с интернетом
 qemu-system-i386 -cdrom tinyos.iso -boot d -m 64     # с ISO
 ```
-
-### Управление
-OS или F8 — меню, F1–F3 — окна, F4 — тема, F5 — браузер/обновить,
-F9 — терминал, F10 — калькулятор, F11 — задачи, F12 — SNAKE,
-ESC — стартовая страница, ENTER — адрес/домен/поиск или открыть ссылку,
-Ctrl+L — новая адресная строка, Ctrl+R — обновить, F6/F7 — история,
-Alt+Tab — переключение окон, Ctrl+W — закрыть окно,
-в Notes Ctrl+S/Ctrl+O — сохранить/загрузить файл,
-в терминале — `help`, `apt install NAME`, `pip install NAME`,
-`ps`, `kill N`, `play 0`, `edit FILE`, `dmesg`, `beep`, `panic`.
 ~~~
 
 ## 5. Заголовок README (первая строка)
@@ -264,7 +256,7 @@ git push -u origin main
 ### Шаг 8. Создайте Release и приложите образы
 
 1. Нажмите **Releases → Create a new release**.
-2. Tag: `gen0.5`, Title: `TINY OS gen0.5`.
+2. Tag: `gen0.6`, Title: `TINY OS gen0.6`.
 3. В поле описания вставьте release notes из раздела 4.
 4. Перетащите вниз в блок **Attach binaries**: `tinyos.iso`, `os.img`, `screenshot.png`.
 5. Нажмите **Publish release**.

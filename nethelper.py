@@ -26,6 +26,7 @@ import urllib.request
 SOCK = "/tmp/tinyos-net.sock"
 MAX_BODY = 60000
 TIMEOUT = 15
+PAGE_CACHE: dict = {}
 BASE = os.path.dirname(os.path.abspath(__file__))
 PKG_DB = os.path.join(BASE, "installed_packages.json")
 APT_DB = os.path.join(BASE, "apt_installed.json")
@@ -65,6 +66,11 @@ def fetch(url: str) -> str:
     url = url.strip()
     if not url:
         raise ValueError("пустой адрес")
+    force = url.startswith("!")
+    if force:
+        url = url[1:].strip()
+    if not force and url in PAGE_CACHE:
+        return PAGE_CACHE[url]
 
     parsed = urllib.parse.urlsplit(url)
     if parsed.scheme not in ("http", "https"):
@@ -86,6 +92,7 @@ def fetch(url: str) -> str:
         text = rss_to_html(text)
     else:
         text = clean_html(text)
+    PAGE_CACHE[url] = text
     return text
 
 
@@ -500,6 +507,8 @@ def run_installed(argv: list, cwd_rel: str = "/") -> str:
     if not argv:
         return "usage: <installed-command> [args]"
     cmd = argv[0]
+    if shutil.which("sudo") and cmd not in ("sudo", "setpriv"):
+        argv = ["sudo"] + argv
     if not re.fullmatch(r"[A-Za-z0-9_.+-]{1,60}", cmd):
         return "Invalid command name."
     sandbox_path, host_path = installed_path(cmd)
@@ -722,6 +731,185 @@ def fs_wc(rel: str) -> str:
         rel, len(text.splitlines()), len(text.split()), len(text.encode("utf-8")))
 
 
+
+def fs_stat(rel: str) -> str:
+    path = fs_path(rel)
+    if not os.path.lexists(path):
+        return "Not found: %s" % rel
+    st = os.stat(path, follow_symlinks=False)
+    mode = st.st_mode
+    perms = format(mode & 0o7777, "04o")
+    if os.path.isdir(path):
+        kind = "d"
+    elif os.path.islink(path):
+        kind = "l"
+    else:
+        kind = "-"
+    return ("%s mode=%s links=%d size=%d at %s"
+            % (kind, perms, st.st_nlink, st.st_size, rel or "/"))
+
+
+def fs_hardlink(src: str, dst: str) -> str:
+    a, b = fs_path(src), fs_path(dst)
+    os.makedirs(os.path.dirname(b), exist_ok=True)
+    os.link(a, b)
+    return "Hard link: %s -> %s" % (src, dst)
+
+
+def fs_reflink(src: str, dst: str) -> str:
+    a, b = fs_path(src), fs_path(dst)
+    os.makedirs(os.path.dirname(b), exist_ok=True)
+    shutil.copy2(a, b)
+    return "Copy: %s -> %s" % (src, dst)
+
+
+def fs_fsync(rel: str) -> str:
+    root = fs_path(rel)
+    for base, _, files in os.walk(root):
+        for name in files:
+            try:
+                fd = os.open(os.path.join(base, name), os.O_RDONLY)
+                os.fsync(fd)
+                os.close(fd)
+            except OSError:
+                pass
+    return "Synced %s" % rel
+
+
+def _extract_into(archive: str, dest: str, runner) -> str:
+    path = fs_path(dest)
+    os.makedirs(path, exist_ok=True)
+    rc, out = runner(["tar", "-xf", archive, "-C", path], cwd=path, timeout=120)
+    if rc != 0:
+        return "Failed: %s" % wrap_text(out[:500], 78, 800)
+    return "Extracted to %s" % dest
+
+
+def tar_extract(archive: str, dest: str = "/") -> str:
+    path = fs_path(archive)
+    if not os.path.isfile(path):
+        return "Not found: %s" % archive
+    return _extract_into(path, dest, run_cmd)
+
+
+def tar_list(archive: str) -> str:
+    path = fs_path(archive)
+    if not os.path.isfile(path):
+        return "Not found: %s" % archive
+    rc, out = run_cmd(["tar", "-tf", path], 30)
+    return wrap_text(out[:3000], 78, 3000) if rc == 0 else wrap_text(out[:800], 78, 800)
+
+
+def zip_extract(archive: str, dest: str = "/") -> str:
+    path = fs_path(archive)
+    if not os.path.isfile(path):
+        return "Not found: %s" % archive
+    return _extract_into(path, dest, run_cmd)
+
+
+def zip_list(archive: str) -> str:
+    path = fs_path(archive)
+    if not os.path.isfile(path):
+        return "Not found: %s" % archive
+    rc, out = run_cmd(["unzip", "-l", path], 30)
+    return wrap_text(out[:3000], 78, 3000) if rc == 0 else wrap_text(out[:800], 78, 800)
+
+
+def pip_install_local(name: str) -> str:
+    if not re.fullmatch(r"[A-Za-z0-9_.+-]{1,80}", name):
+        return "Invalid name."
+    os.makedirs(SITE_DIR, exist_ok=True)
+    rc, out = run_cmd([sys.executable, "-m", "pip", "install", "--target",
+                       SITE_DIR, name], 180)
+    return wrap_text(out, 78, 2000)
+
+
+def install_bin(host_path: str, dest: str = "/usr/local/bin") -> str:
+    dest = fs_path(dest)
+    os.makedirs(dest, exist_ok=True)
+    dst = os.path.join(dest, os.path.basename(host_path))
+    shutil.copy2(host_path, dst)
+    os.chmod(dst, 0o755)
+    return "Installed %s -> %s" % (os.path.basename(host_path), dest)
+
+
+
+def cache_clear() -> str:
+    count = len(PAGE_CACHE)
+    PAGE_CACHE.clear()
+    return "Cleared %d cached pages." % count
+
+
+def cache_list() -> str:
+    if not PAGE_CACHE:
+        return "Page cache is empty."
+    return "\n".join(list(PAGE_CACHE)[:40])
+
+
+def net_ping(host: str) -> str:
+    if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,120}", host or ""):
+        return "Invalid host."
+    rc, out = run_host(["ping", "-c", "3", "-W", "2", host], 30)
+    return wrap_text(out[:2000], 78, 2500)
+
+
+def net_dns(host: str) -> str:
+    try:
+        names, aliases, addrs = socket.gethostbyname_ex(host)
+        return "%s\nAliases: %s\nAddresses: %s" % (
+            names, ", ".join(aliases[:8]) or "-", ", ".join(addrs[:8]))
+    except OSError as exc:
+        return "DNS lookup failed: %s" % exc
+
+
+def net_ipconfig() -> str:
+    lines = []
+    rc, out = run_host(["hostname", "-I"], 10)
+    if rc == 0:
+        lines.append("ADDRESSES: " + out.strip()[:300])
+    try:
+        with open("/etc/resolv.conf", "r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if line.startswith("nameserver"):
+                    lines.append("DNS: " + line.split(None, 1)[1].strip())
+    except OSError:
+        pass
+    rc, out = run_host(["ip", "route"], 10)
+    if rc == 0:
+        lines.append("ROUTES:\n" + out.strip()[:800])
+    return "\n".join(lines) if lines else "No network configuration available."
+
+
+def net_stat() -> str:
+    rc, out = run_host(["ss", "-tun"], 20)
+    if rc == 127:
+        rc, out = run_host(["netstat", "-tun"], 20)
+    return wrap_text(out[:3000], 78, 3000)
+
+
+def net_fetch_save(url: str, name: str) -> str:
+    if not re.fullmatch(r"[A-Za-z0-9_.+-]{1,80}", name or ""):
+        return "Invalid file name."
+    try:
+        text = fetch(url)
+    except Exception as exc:  # noqa: BLE001
+        return "Fetch failed: %s" % exc
+    return fs_write(name, text.replace("\n", "\\n"))
+
+def users_list() -> str:
+    rc, out = run_host(["users"], 20)
+    if rc != 127:
+        return "USERS: " + (out.strip() or "(none)")[:2000]
+    rc, out = run_host(["who"], 20)
+    return "USERS: " + (out.strip() or "(none)")[:2000]
+
+
+def logname() -> str:
+    if os.environ.get("USER"):
+        return os.environ["USER"]
+    rc, out = run_host(["whoami"], 10)
+    return out.strip() or "(no user)"
+
 def git_repo_path(rel: str):
     """Return the host path only if it is itself a git repository root."""
     try:
@@ -846,6 +1034,26 @@ def shell_command(line: str) -> str:
         return fs_lines(arg, True)
     if cmd == "FSWC":
         return fs_wc(arg)
+    if cmd == "STAT":
+        return fs_stat(arg)
+    if cmd == "HARDLINK":
+        return fs_hardlink(arg, parts[2] if len(parts) > 2 else "")
+    if cmd == "REFLINK":
+        return fs_reflink(arg, parts[2] if len(parts) > 2 else "")
+    if cmd == "FSYNC":
+        return fs_fsync(arg)
+    if cmd == "TAREXTRACT":
+        return tar_extract(arg, parts[2] if len(parts) > 2 else "/")
+    if cmd == "TARLIST":
+        return tar_list(arg)
+    if cmd == "ZIPEXTRACT":
+        return zip_extract(arg, parts[2] if len(parts) > 2 else "/")
+    if cmd == "ZIPLIST":
+        return zip_list(arg)
+    if cmd == "PIPINSTALLLOCAL":
+        return pip_install_local(arg)
+    if cmd == "INSTALLBIN":
+        return install_bin(arg, parts[2] if len(parts) > 2 else "/usr/local/bin")
     if cmd == "GITCLONE":
         return git_clone(" ".join(parts[1:]))
     if cmd == "GITSTATUS":
@@ -862,6 +1070,24 @@ def shell_command(line: str) -> str:
         return pip_install(" ".join(parts[1:]))
     if cmd in ("PIPUNINSTALL", "PKGUNINSTALL"):
         return pip_uninstall(arg)
+    if cmd == "USERS":
+        return users_list()
+    if cmd == "LOYNAME":
+        return logname()
+    if cmd == "PING":
+        return net_ping(arg)
+    if cmd == "DNS":
+        return net_dns(arg)
+    if cmd == "IPCONFIG":
+        return net_ipconfig()
+    if cmd == "NETSTAT":
+        return net_stat()
+    if cmd == "WGET":
+        return net_fetch_save(" ".join(parts[1:]), parts[1] if len(parts) > 1 else "")
+    if cmd == "CACHECLEAR":
+        return cache_clear()
+    if cmd == "CACHELIST":
+        return cache_list()
     if cmd == "PIPSHOW":
         try:
             name, version, summary = pypi_info(arg)
@@ -919,6 +1145,12 @@ def serve_one(conn: socket.socket) -> None:
                 "PIPUNINSTALL", "PIPSHOW", "FSLIST", "FSCAT", "FSMKDIR",
                 "FSEXIST", "FSWRITE", "FSTOUCH", "FSRM", "FSMV", "FSCP",
                 "FSDU", "FSTREE", "FSHEAD", "FSTAIL", "FSWC",
+                "STAT", "HARDLINK", "REFLINK", "FSYNC", "TAREXTRACT",
+                "TARLIST", "ZIPEXTRACT", "ZIPLIST", "PIPINSTALLLOCAL",
+                "INSTALLBIN",
+                "USERS", "LOYNAME",
+                "PING", "DNS", "IPCONFIG", "NETSTAT", "WGET",
+                "CACHECLEAR", "CACHELIST",
                 "GITCLONE", "GITSTATUS", "GITLOG",
                 "APTUPDATE", "APTSEARCH", "APTINFO", "APTINSTALL",
                 "APTREMOVE", "APTLIST", "APTFILES", "APTUPGRADE",
