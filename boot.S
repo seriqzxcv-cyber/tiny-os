@@ -12,6 +12,9 @@
 #ifndef KERNEL_ENTRY
 #define KERNEL_ENTRY 0x10000
 #endif
+.ifndef KERNEL_BSS_END
+.set KERNEL_BSS_END, (0x10000 + KERNEL_SECTORS * 512)
+.endif
 
 .code16
 .section .text
@@ -40,11 +43,37 @@ _start:
 .ifndef NO_DISK_READ
     /* Booting from a hard disk image: read via int 13h.  Try LBA first,
      * then CHS (used when booting from an emulated floppy). */
+    /* Read in 32-sector chunks: large kernels exceed the BIOS limit for
+     * a single int 13h request.  All state lives in memory because some
+     * BIOS implementations clobber registers during int 13h. */
+    movw    $KERNEL_SECTORS, remain
+    movw    $0x1000, bufseg
+    movl    $1, dap+8
+lba_loop:
+    movw    remain, %ax
+    cmpw    $32, %ax
+    jbe     lba_count
+    movw    $32, %ax
+lba_count:
+    movw    %ax, chunk
+    movw    %ax, dap+2
+    movw    bufseg, %ax
+    movw    %ax, dap+6
+    xorl    %eax, %eax
     movb    $0x42, %ah
     movb    boot_drive, %dl
     movw    $dap, %si
     int     $0x13
-    jnc     kernel_loaded
+    jc      chs_read
+    movw    chunk, %ax
+    subw    %ax, remain
+    movzwl  %ax, %eax
+    addl    %eax, dap+8
+    shlw    $5, %ax
+    addw    %ax, bufseg
+    cmpw    $0, remain
+    jne     lba_loop
+    jmp     kernel_loaded
 
 chs_read:
     movw    $0x0000, %ax
@@ -63,13 +92,28 @@ chs_read:
      * drive 0xE0 cannot be read with int 13h.  Just copy the kernel. */
     movw    $0x1000, %ax
     movw    %ax, %es
-    xorw    %di, %di
-    movw    $0x7E00, %si
-    movw    $(KERNEL_SECTORS * 512), %cx
-    rep movsb
+    /* destination overlaps the source: copy backwards to avoid corruption */
+    std
+    movl    $(KERNEL_SECTORS * 512 - 1), %edi
+    movl    $(0x7E00 + KERNEL_SECTORS * 512 - 1), %esi
+    movl    $(KERNEL_SECTORS * 512), %ecx
+    addr32 rep movsb
+    cld
 .endif
 
 kernel_loaded:
+
+    /* the file image stops before .bss; zero the rest of the kernel */
+    xorw    %ax, %ax
+    movw    %ax, %es
+    cld
+    movl    $(0x10000 + KERNEL_SECTORS * 512), %edi
+    movl    $KERNEL_BSS_END, %ecx
+    subl    %edi, %ecx
+    jz      bss_done
+    xorl    %eax, %eax
+    addr32 rep stosb
+bss_done:
 
     /* --- VESA: set mode 0x118 (1024x768, 32bpp, linear FB) --- */
     movw    $0x4F02, %ax
@@ -133,6 +177,12 @@ dap:
 
 boot_drive:
     .byte 0
+remain:
+    .word 0
+bufseg:
+    .word 0
+chunk:
+    .word 0
 
 .code32
 protected_mode:

@@ -22,10 +22,11 @@ $OBJCOPY -O binary kernel.elf kernel.bin
 KSIZE=$(stat -c%s kernel.bin)
 KSECT=$(( (KSIZE + 511) / 512 ))
 KENTRY=$(nm -n kernel.elf | grep -w kernel_main | awk '{print "0x"$1}')
+KBSS=$(nm -n kernel.elf | grep -w _end | awk '{print "0x"$1}')
 echo "      kernel size: $KSIZE bytes ($KSECT sectors), entry $KENTRY"
 
 echo "[4/7] assembling bootloader (KERNEL_SECTORS=$KSECT)..."
-$AS --32 --defsym KERNEL_SECTORS=$KSECT --defsym KERNEL_ENTRY=$KENTRY boot.S -o boot.o
+$AS --32 --defsym KERNEL_SECTORS=$KSECT --defsym KERNEL_ENTRY=$KENTRY --defsym KERNEL_BSS_END=$KBSS boot.S -o boot.o
 $LD -m elf_i386 -T boot.ld --oformat binary boot.o -o boot.bin
 
 BSIZE=$(stat -c%s boot.bin)
@@ -44,7 +45,7 @@ echo "[6/7] building bootable CD image..."
 # El Torito loads the whole image at 0x7C00; the CD-specific bootloader
 # copies the kernel into place instead of calling int 13h (drive 0xE0).
 $AS --32 --defsym KERNEL_SECTORS=$KSECT --defsym KERNEL_ENTRY=$KENTRY \
-    --defsym NO_DISK_READ=1 boot.S -o boot_iso.o
+    --defsym KERNEL_BSS_END=$KBSS --defsym NO_DISK_READ=1 boot.S -o boot_iso.o
 $LD -m elf_i386 -T boot.ld --oformat binary boot_iso.o -o boot_iso.bin
 ISO_SIZE=$(stat -c%s boot_iso.bin)
 if [ "$ISO_SIZE" -ne 512 ]; then

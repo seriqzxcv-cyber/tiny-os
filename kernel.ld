@@ -8,6 +8,7 @@ SECTIONS
     .rodata : { *(.rodata .rodata.*) }
     .data :   { *(.data .data.*) }
     .bss :    { *(.bss .bss.*) *(COMMON) }
+    _end = .;
 
     /DISCARD/ : {
         *(.comment)

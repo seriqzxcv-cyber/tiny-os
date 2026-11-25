@@ -268,6 +268,7 @@ static void idt_init(void) {
 
 static int starts_ci(const char *s, const char *p);
 static void cstr_copy(char *dst, const char *src, int sz);
+static void klog_add(const char *msg);
 
 static u32 page_len = 0;
 static int page_lines = 0;
@@ -305,11 +306,11 @@ static int nlinks = 0;
 /* Start menu: 8 = OS button, 200..205 = items, 300.. = page links */
 #define MENU_X 8
 #define MENU_W 232
-#define MENU_H 218
-#define MENU_ITEMS 8
+#define MENU_H 262
+#define MENU_ITEMS 10
 static const char *menu_names[MENU_ITEMS] = {
-    "WELCOME", "SYSTEM", "NOTES", "BROWSER", "TERMINAL", "CALCULATOR",
-    "CHANGE THEME", "CLOSE MENU"
+    "WELCOME", "SYSTEM", "TEXT EDITOR", "BROWSER", "TERMINAL", "CALCULATOR",
+    "TASK MANAGER", "SNAKE GAME", "CHANGE THEME", "CLOSE MENU"
 };
 static int menu_open = 0;
 static int mouse4 = 0;                 /* Intellimouse: 4-byte packets */
@@ -336,14 +337,19 @@ static u16 pit_read(void) {
 }
 
 /* Wait for a COM1 flag with a real time limit (not a CPU-loop guess). */
+static u32 pit_delta(u32 *prev, u32 *acc) {
+    u32 now = pit_read();
+    if (now > *prev) *acc += *prev + (65536u - now);  /* wrapped */
+    else *acc += *prev - now;
+    *prev = now;
+    return *acc;
+}
+
 static int serial_wait(u8 mask, u32 ms) {
-    u32 prev = pit_read(), acc = 0, now;
+    u32 prev = pit_read(), acc = 0, limit = ms * 1193u;
     for (;;) {
         if (inb(0x3FD) & mask) return 1;
-        now = pit_read();
-        if (now < prev) acc += 65536u;   /* 16-bit counter wrapped */
-        prev = now;
-        if ((acc + now) * 1000u / 1193182u >= ms) return 0;
+        if (pit_delta(&prev, &acc) >= limit) return 0;
     }
 }
 
@@ -372,13 +378,8 @@ static int serial_get_ms(u8 *c, u32 ms) {
 static int serial_get(u8 *c) { return serial_get_ms(c, 6000); }
 
 static void pit_delay(u32 ms) {
-    u32 prev = pit_read(), acc = 0, now;
-    for (;;) {
-        now = pit_read();
-        if (now < prev) acc += 65536u;
-        prev = now;
-        if ((acc + now) * 1000u / 1193182u >= ms) return;
-    }
+    u32 prev = pit_read(), acc = 0, limit = ms * 1193u;
+    while (pit_delta(&prev, &acc) < limit) { }
 }
 
 /* PC speaker is driven by PIT channel 2. */
@@ -775,6 +776,7 @@ static void hex_str(char *out, u32 v) {
 static void __attribute__((noreturn)) kernel_panic(u32 vec, u32 err, u32 eip) {
     char hex[12];
     __asm__ volatile ("cli");
+    klog_add("PANIC: EXCEPTION - SYSTEM HALTED");
     beep(110, 350);
     dbuf = (u8 *)fb;
     rect(0, 0, (int)screen_w, (int)screen_h, RGB(8, 10, 40));
@@ -879,6 +881,15 @@ static void draw_app_icon(int x, int y, int idx) {
             putp(x + 4, y + 5 + i * 2, RGB(255, 240, 200));
             putp(x + 6, y + 5 + i * 2, RGB(255, 240, 200));
         }
+    } else if (idx == 6) {                /* task manager */
+        rect(x + 1, y, 9, 10, RGB(18, 38, 62));
+        frame(x + 1, y, 9, 10, RGB(120, 190, 240));
+        for (i = 0; i < 3; i++) rect(x + 2, y + 2 + i * 3, 7, 1, RGB(90, 210, 170));
+    } else if (idx == 7) {                /* snake */
+        rect(x + 1, y, 9, 10, RGB(8, 42, 26));
+        frame(x + 1, y, 9, 10, RGB(130, 240, 160));
+        rect(x + 3, y + 3, 2, 2, RGB(190, 255, 120));
+        rect(x + 6, y + 5, 2, 2, RGB(190, 255, 120));
     } else {                              /* terminal */
         rect(x + 1, y, 9, 10, RGB(12, 18, 26));
         frame(x + 1, y, 9, 10, RGB(120, 205, 165));
@@ -926,19 +937,24 @@ typedef struct {
     int kind;                    /* 1 = browser */
 } Win;
 
-#define WIN_N 6
+#define WIN_N 8
 static Win wins[WIN_N] = {
     {  90,  92, 440, 255, 0, 0, 0, 0, "WELCOME TO TINY OS", 1, 1, 0, 0, 1, RGB(14, 34, 66),  0 },
     { 370, 150, 410, 380, 0, 0, 0, 0, "SYSTEM INFO",       1, 0, 0, 0, 2, RGB(26, 29, 38),  0 },
-    { 220, 345, 390, 250, 0, 0, 0, 0, "NOTES",             1, 0, 0, 0, 3, RGB(16, 48, 38),  0 },
+    { 220, 345, 390, 250, 0, 0, 0, 0, "TEXT EDITOR",       1, 0, 0, 0, 3, RGB(16, 48, 38),  0 },
     {  70,  60, 760, 560, 0, 0, 0, 0, "TINY BROWSER",       1, 0, 0, 0, 4, RGB(16, 20, 30),  1 },
-    { 120, 180, 560, 350, 0, 0, 0, 0, "TERMINAL",           0, 0, 0, 0, 5, RGB(8, 14, 22),    0 },
+    {  40, 180, 560, 350, 0, 0, 0, 0, "TERMINAL",           0, 0, 0, 0, 5, RGB(8, 14, 22),    0 },
     { 700,  90, 300, 330, 0, 0, 0, 0, "CALCULATOR",         0, 0, 0, 0, 6, RGB(18, 22, 30),   0 },
+    { 610, 110, 390, 350, 0, 0, 0, 0, "TASK MANAGER",       0, 0, 0, 0, 7, RGB(14, 28, 44),   0 },
+    { 130, 120, 420, 390, 0, 0, 0, 0, "SNAKE",              0, 0, 0, 0, 8, RGB(10, 26, 20),   0 },
 };
 static int top_z = 6;
 static const char *task_label[WIN_N] = {
-    "WELCOME", "SYSTEM", "NOTES", "BROWSER", "TERMINAL", "CALC"
+    "WELCOME", "SYSTEM", "EDITOR", "BROWSER", "SHELL", "CALC", "TASKS", "SNAKE"
 };
+#define TASK_X 108
+#define TASK_W 92
+#define TASK_STEP 96
 
 /* A tiny terminal with a pip/pkg-like package manager. */
 #define TERM_MAX 40
@@ -983,6 +999,163 @@ static int dragging = -1, drag_ox = 0, drag_oy = 0;
 static int resizing = -1, resize_ox = 0, resize_oy = 0;
 static int hover_id = -1;
 static int scene_dirty = 1, cursor_dirty = 1;
+
+/* ------------------------ kernel log and cooperative tasks -------------- */
+#define LOG_MAX 32
+static char klog[LOG_MAX][64];
+static int klog_count = 0;
+
+static void klog_add(const char *msg) {
+    if (klog_count < LOG_MAX) {
+        cstr_copy(klog[klog_count], msg, 64);
+        klog_count++;
+    } else {
+        int i;
+        for (i = 0; i < LOG_MAX - 1; i++)
+            cstr_copy(klog[i], klog[i + 1], 64);
+        cstr_copy(klog[LOG_MAX - 1], msg, 64);
+    }
+}
+
+static u32 pit_prev2 = 0, pit_acc2 = 0, ms_counter = 0;
+static u32 now_ms(void) { return ms_counter; }
+static void timer_poll(void) {
+    pit_delta(&pit_prev2, &pit_acc2);
+    ms_counter = pit_acc2 / 1193u;
+}
+
+static void snake_tick(void);
+static void music_tick(void);
+static void clock_tick(void);
+
+typedef struct {
+    const char *name;
+    int id, enabled, calls;
+    u32 period, last;
+    void (*fn)(void);
+} Task;
+
+static Task tasks[8] = {
+    { "IDLE",      0, 1, 0, 0,    0, 0 },
+    { "SHELL",     1, 1, 0, 0,    0, 0 },
+    { "BROWSER",   2, 1, 0, 0,    0, 0 },
+    { "CLOCK",     3, 1, 0, 1000, 0, clock_tick },
+    { "MUSIC",     4, 1, 0, 180,  0, music_tick },
+    { "SNAKE",     5, 1, 0, 300,  0, snake_tick },
+    { "RENDER",    6, 1, 0, 0,    0, 0 },
+    { "NETHELPER", 7, 1, 0, 0,    0, 0 }
+};
+#define TASK_N 8
+
+static void task_run(void) {
+    u32 t = now_ms();
+    int i;
+    for (i = 0; i < TASK_N; i++) {
+        Task *k = &tasks[i];
+        if (!k->enabled || !k->fn) continue;
+        if (t - k->last >= k->period) {
+            k->last = t;
+            k->calls++;
+            k->fn();
+        }
+    }
+}
+
+static void clock_tick(void) { scene_dirty = 1; }
+
+/* three short melodies played on the PC speaker */
+static const u16 tune1[] = { 523, 659, 784, 1047, 784, 659, 523, 0 };
+static const u16 tune2[] = { 392, 440, 494, 523, 587, 659, 784, 0 };
+static const u16 tune3[] = { 880, 660, 880, 660, 1047, 880, 660, 0 };
+static const u16 *tunes[3] = { tune1, tune2, tune3 };
+static const int tunelen[3] = { 8, 8, 8 };
+static int music_on = 0, music_tune = 0, music_pos = 0;
+
+static void music_tick(void) {
+    u16 f;
+    if (!music_on) return;
+    f = tunes[music_tune][music_pos];
+    if (f) speaker_on(f); else speaker_off();
+    music_pos++;
+    if (music_pos >= tunelen[music_tune]) {
+        music_pos = 0;
+        music_on = 0;
+        speaker_off();
+    }
+}
+
+static void music_start(int n) {
+    if (n < 0 || n > 2) n = 0;
+    music_tune = n;
+    music_pos = 0;
+    music_on = 1;
+    tasks[4].enabled = 1;
+    tasks[4].last = now_ms();
+    music_tick();
+}
+
+static void music_stop(void) {
+    music_on = 0;
+    speaker_off();
+}
+
+/* snake game state */
+#define SN_W 20
+#define SN_H 18
+static int snake_x[80], snake_y[80], snake_len = 4;
+static int snake_dir = 2, snake_fx = 10, snake_fy = 8;
+static int snake_score = 0, snake_high = 0, snake_over = 0, snake_run = 0;
+
+static void snake_reset(void) {
+    int i;
+    for (i = 0; i < 4; i++) {
+        snake_x[i] = 10 - i;
+        snake_y[i] = 9;
+    }
+    snake_len = 4;
+    snake_dir = 2;
+    snake_fx = 15;
+    snake_fy = 9;
+    snake_over = 0;
+    snake_run = 1;
+    scene_dirty = 1;
+}
+
+static void snake_tick(void) {
+    int nx, ny, i;
+    if (!wins[7].open || wins[7].minimized || !snake_run || snake_over) return;
+    nx = snake_x[0];
+    ny = snake_y[0];
+    if (snake_dir == 1) nx--;
+    else if (snake_dir == 2) nx++;
+    else if (snake_dir == 3) ny--;
+    else ny++;
+    if (nx < 0 || nx >= SN_W || ny < 0 || ny >= SN_H) snake_over = 1;
+    for (i = 0; i < snake_len && !snake_over; i++)
+        if (snake_x[i] == nx && snake_y[i] == ny) snake_over = 1;
+    if (snake_over) { scene_dirty = 1; return; }
+    for (i = snake_len; i > 0; i--) {
+        snake_x[i] = snake_x[i - 1];
+        snake_y[i] = snake_y[i - 1];
+    }
+    snake_x[0] = nx;
+    snake_y[0] = ny;
+    if (nx == snake_fx && ny == snake_fy) {
+        snake_len++;
+        if (snake_len > 80) snake_len = 80;
+        snake_score += 10;
+        if (snake_score > snake_high) snake_high = snake_score;
+        snake_fx = (nx * 7 + 3) % SN_W;
+        snake_fy = (ny * 11 + 5) % SN_H;
+        speaker_on(1200);
+        pit_delay(40);
+        speaker_off();
+    }
+    scene_dirty = 1;
+}
+
+static char editor_path[80] = "/notes.txt";
+static char editor_title[40] = "TEXT EDITOR";
 
 static int hh = 0, mm = 0, ss = 0, last_clock = -1;
 
@@ -1029,7 +1202,7 @@ static void menu_item_rect(int idx, int *x, int *y, int *w, int *h) {
 static int hover_rect(int id, int *x, int *y, int *w, int *h) {
     if (id >= 100 && id < 100 + WIN_N) {
         int i = id - 100;
-        *x = 108 + i * 124; *y = (int)screen_h - 33; *w = 116; *h = 26;
+        *x = TASK_X + i * TASK_STEP; *y = (int)screen_h - 33; *w = TASK_W; *h = 26;
         return 1;
     }
     if (id == 500) {
@@ -1104,11 +1277,11 @@ static void draw_hover_item(int id, int hot) {
         return;
     }
     if (id >= 100 && id < 100 + WIN_N) {
-        int i = id - 100, bx = 108 + i * 124, by = (int)screen_h - 33;
-        rect(bx, by, 116, 26,
+        int i = id - 100, bx = TASK_X + i * TASK_STEP, by = (int)screen_h - 33;
+        rect(bx, by, TASK_W, 26,
              hot ? RGB(72, 86, 110) : (wins[i].open ? RGB(48, 55, 70) : RGB(32, 36, 44)));
-        frame(bx, by, 116, 26, hot ? RGB(140, 185, 235) : RGB(80, 88, 106));
-        if (wins[i].active) rect(bx + 2, by + 24, 112, 2, accent[wall]);
+        frame(bx, by, TASK_W, 26, hot ? RGB(140, 185, 235) : RGB(80, 88, 106));
+        if (wins[i].active) rect(bx + 2, by + 24, TASK_W - 4, 2, accent[wall]);
         draw_app_icon(bx + 4, by + 8, i);
         draw_text_n(bx + 18, by + 7, task_label[i], 16,
                     wins[i].open ? RGB(235, 240, 250) : RGB(130, 136, 148));
@@ -1689,18 +1862,24 @@ static void notes_decode(const char *src) {
 }
 
 static void notes_store(int save) {
-    char req[600], reply[120];
+    char req[600], reply[600];
     if (save) {
-        cstr_copy(req, "NOTESSAVE ", 11);
-        notes_encode(req + 10, sizeof(req) - 10);
+        cstr_copy(req, "FSWRITE ", sizeof(req));
+        cstr_copy(req + cstrlen(req), editor_path,
+                  sizeof(req) - cstrlen(req));
+        cstr_copy(req + cstrlen(req), " ", sizeof(req) - cstrlen(req));
+        notes_encode(req + cstrlen(req), sizeof(req) - cstrlen(req));
         if (term_request(req, reply, sizeof(reply)))
-            cstr_copy(notes_status, "SAVED TO DISK", sizeof(notes_status));
+            cstr_copy(notes_status, "SAVED", sizeof(notes_status));
         else
             cstr_copy(notes_status, "OFFLINE", sizeof(notes_status));
     } else {
-        if (term_request("NOTESLOAD", reply, sizeof(reply))) {
+        cstr_copy(req, "FSCAT ", sizeof(req));
+        cstr_copy(req + cstrlen(req), editor_path,
+                  sizeof(req) - cstrlen(req));
+        if (term_request(req, reply, sizeof(reply))) {
             notes_decode(reply);
-            cstr_copy(notes_status, "LOADED FROM DISK", sizeof(notes_status));
+            cstr_copy(notes_status, "LOADED", sizeof(notes_status));
         } else {
             cstr_copy(notes_status, "OFFLINE", sizeof(notes_status));
         }
@@ -1786,7 +1965,7 @@ static void term_host(const char *req, int show) {
 }
 
 static void term_exec(void) {
-    char cmd[TERM_CMD], buf[4096], path[100], *argv[6];
+    char cmd[TERM_CMD], buf[4096], rep[4096], path[100], *argv[6];
     int argc = 0, i;
     char *p;
     cstr_copy(cmd, term_cmd, sizeof(cmd));
@@ -1806,18 +1985,20 @@ static void term_exec(void) {
     if (argc == 0) { term_cmd[0] = 0; term_pos = 0; return; }
 
     if (term_streq(argv[0], "help")) {
-        term_print("FILES: pwd  ls [DIR]  cd DIR  mkdir DIR  cat FILE");
+        term_print("FILES: pwd ls [DIR] cd DIR mkdir DIR cat FILE");
+        term_print("  touch mv cp rm du tree head tail wc edit FILE");
         term_print("SYSTEM PACKAGES: apt update | apt search TEXT");
         term_print("  apt install NAME | apt remove NAME | apt list");
         term_print("  apt show NAME | apt files NAME | apt clean");
         term_print("PYTHON: pip install NAME | pip show NAME | pip list");
         term_print("GIT: git clone URL | git status | git log");
-        term_print("SHELL: clear ver date echo uptime uname which CMD beep");
-        term_print("APPS: calc  panic  (Up/Down history, PgUp/PgDn scroll)");
+        term_print("SHELL: clear ver date echo uptime uname free df dmesg");
+        term_print("  ps kill ID resume ID which beep play stop history");
+        term_print("APPS: calc top snake panic  (Up/Down history, PgUp/PgDn)");
     } else if (term_streq(argv[0], "clear")) {
         term_head = 0; term_count = 0;
     } else if (term_streq(argv[0], "ver")) {
-        term_print("TINY OS gen0.4  /  TINY SHELL 1.2");
+        term_print("TINY OS gen0.5  /  TINY SHELL 1.3");
     } else if (term_streq(argv[0], "date")) {
         buf[0] = (char)('0' + dd_day / 10);
         buf[1] = (char)('0' + dd_day % 10);
@@ -1844,7 +2025,7 @@ static void term_exec(void) {
         term_catn(buf, buf, " SEC", sizeof(buf));
         term_print(buf);
     } else if (term_streq(argv[0], "uname")) {
-        term_print("TINY OS gen0.4 i386 / 32-BIT KERNEL / IDT");
+        term_print("TINY OS gen0.5 i386 / 32-BIT KERNEL / IDT / TASKS");
     } else if (term_streq(argv[0], "history")) {
         for (i = 0; i < term_hist_count; i++) {
             char nb[8];
@@ -1866,6 +2047,116 @@ static void term_exec(void) {
         scene_dirty = 1;
         compose_full();
         __asm__ volatile ("int $3");
+    } else if (term_streq(argv[0], "dmesg")) {
+        for (i = 0; i < klog_count; i++) term_print(klog[i]);
+    } else if (term_streq(argv[0], "free")) {
+        u32 ext = (u32)inb(0x42) * 256u + (u32)inb(0x41);
+        u32 total = 1024u + ext;
+        cstr_copy(buf, "MEMORY: ", sizeof(buf));
+        num_str(buf + 8, total);
+        term_catn(buf, buf, " KiB total (CMOS)", sizeof(buf));
+        term_print(buf);
+        term_print("KERNEL: ~58 KiB   VIDEO BUFFERS: ~8 MiB");
+    } else if (term_streq(argv[0], "df")) {
+        term_path(path, argc > 1 ? argv[1] : "/");
+        term_cat(buf, "FSDU ", path);
+        term_host(buf, 1);
+    } else if (term_streq(argv[0], "ps")) {
+        u32 now = now_ms();
+        for (i = 0; i < TASK_N; i++) {
+            int used = (int)(now - tasks[i].last);
+            cstr_copy(buf, tasks[i].name, sizeof(buf));
+            term_catn(buf, buf, tasks[i].enabled ? "  RUN  " : "  STOP ", sizeof(buf));
+            num_str(rep, (u32)tasks[i].calls);
+            term_catn(buf, buf, rep, sizeof(buf));
+            if (tasks[i].fn) {
+                term_catn(buf, buf, "  last ", sizeof(buf));
+                num_str(rep, (u32)used);
+                term_catn(buf, buf, rep, sizeof(buf));
+                term_catn(buf, buf, "ms", sizeof(buf));
+            }
+            term_print(buf);
+        }
+    } else if (term_streq(argv[0], "kill") || term_streq(argv[0], "resume")) {
+        int id;
+        if (argc < 2) { term_print("usage: kill ID | resume ID"); }
+        else {
+            id = argv[1][0] - '0';
+            if (id < 0 || id >= TASK_N || (argv[1][1] != 0)) {
+                term_print("Invalid task ID (0-7).");
+            } else {
+                tasks[id].enabled = term_streq(argv[0], "resume") ? 1 : 0;
+                if (!tasks[id].enabled) {
+                    if (id == 4) music_stop();
+                    if (id == 5) snake_run = 0;
+                }
+                cstr_copy(buf, tasks[id].enabled ? "RESUMED " : "STOPPED ", sizeof(buf));
+                term_catn(buf, buf, tasks[id].name, sizeof(buf));
+                term_print(buf);
+                klog_add(buf);
+            }
+        }
+    } else if (term_streq(argv[0], "play")) {
+        int n = argc > 1 ? argv[1][0] - '0' : 0;
+        music_start(n);
+        cstr_copy(buf, "PLAYING MELODY ", sizeof(buf));
+        num_str(buf + 15, (u32)(n >= 0 && n < 3 ? n : 0));
+        term_print(buf);
+        music_tick();
+    } else if (term_streq(argv[0], "stop")) {
+        music_stop();
+        term_print("Sound stopped.");
+    } else if (term_streq(argv[0], "top")) {
+        activate(6);
+        term_print("Task manager opened.");
+    } else if (term_streq(argv[0], "snake")) {
+        activate(7);
+        snake_reset();
+        term_print("Snake started: arrows, Space to restart.");
+    } else if (term_streq(argv[0], "edit")) {
+        if (argc < 2) term_print("usage: edit FILE");
+        else {
+            term_path(path, argv[1]);
+            cstr_copy(editor_path, path, sizeof(editor_path));
+            cstr_copy(editor_title, "EDIT ", sizeof(editor_title));
+            term_catn(editor_title, editor_title, editor_path, sizeof(editor_title));
+            wins[2].title = editor_title;
+            term_cat(buf, "FSCAT ", path);
+            if (term_request(buf, rep, sizeof(rep))) {
+                notes_decode(rep);
+                activate(2);
+                cstr_copy(notes_status, "LOADED", sizeof(notes_status));
+                cstr_copy(buf, "EDITING ", sizeof(buf));
+                term_catn(buf, buf, editor_path, sizeof(buf));
+                term_print(buf);
+            } else term_print("OFFLINE: start QEMU with ./run.sh");
+        }
+    } else if (term_streq(argv[0], "touch") || term_streq(argv[0], "rm") ||
+               term_streq(argv[0], "mv") || term_streq(argv[0], "cp") ||
+               term_streq(argv[0], "du") || term_streq(argv[0], "tree") ||
+               term_streq(argv[0], "head") || term_streq(argv[0], "tail") ||
+               term_streq(argv[0], "wc")) {
+        const char *verb = term_streq(argv[0], "touch") ? "FSTOUCH" :
+                           term_streq(argv[0], "rm") ? "FSRM" :
+                           term_streq(argv[0], "mv") ? "FSMV" :
+                           term_streq(argv[0], "cp") ? "FSCP" :
+                           term_streq(argv[0], "du") ? "FSDU" :
+                           term_streq(argv[0], "tree") ? "FSTREE" :
+                           term_streq(argv[0], "head") ? "FSHEAD" :
+                           term_streq(argv[0], "tail") ? "FSTAIL" : "FSWC";
+        if (argc < 2) { term_print("usage: FILECMD PATH [DEST]"); }
+        else {
+            cstr_copy(buf, verb, sizeof(buf));
+            term_catn(buf, buf, " ", sizeof(buf));
+            term_path(path, argv[1]);
+            term_catn(buf, buf, path, sizeof(buf));
+            if (argc > 2 && (term_streq(argv[0], "mv") || term_streq(argv[0], "cp"))) {
+                term_catn(buf, buf, " ", sizeof(buf));
+                term_path(rep, argv[2]);
+                term_catn(buf, buf, rep, sizeof(buf));
+            }
+            term_host(buf, 1);
+        }
     } else if (term_streq(argv[0], "pwd")) {
         term_print(term_cwd);
     } else if (term_streq(argv[0], "ls")) {
@@ -2135,9 +2426,65 @@ static void draw_calculator(Win *w) {
     }
 }
 
+static void draw_task_manager(Win *w) {
+    int x = w->x + 16, y = w->y + 52, i;
+    char num[12];
+    draw_text(x, y, "COOPERATIVE TASKS", RGB(150, 205, 255));
+    rect(x, y + 18, w->w - 32, 2, RGB(70, 110, 160));
+    draw_text(x, y + 28, "ID NAME        STATE  CALLS", RGB(135, 165, 205));
+    for (i = 0; i < TASK_N; i++) {
+        int ty = y + 44 + i * 24;
+        int bar = (tasks[i].calls % 40) * 4;
+        char line[40];
+        cstr_copy(line, "  ", sizeof(line));
+        num_str(num, (u32)tasks[i].id);
+        term_catn(line, line, num, sizeof(line));
+        term_catn(line, line, "  ", sizeof(line));
+        term_catn(line, line, tasks[i].name, sizeof(line));
+        draw_text(x, ty, line, RGB(215, 230, 245));
+        draw_text(x + 142, ty, tasks[i].enabled ? "RUN" : "STOP",
+                  tasks[i].enabled ? RGB(120, 230, 160) : RGB(230, 120, 120));
+        num_str(num, (u32)tasks[i].calls);
+        draw_text(x + 194, ty, num, RGB(255, 215, 130));
+        rect(x + 236, ty + 1, 120, 8, RGB(30, 40, 55));
+        if (bar > 0) rect(x + 236, ty + 1, bar, 8, RGB(70, 180, 160));
+    }
+    draw_text(x, y + 224, "UPTIME:", RGB(140, 175, 210));
+    num_str(num, uptime_sec);
+    draw_text(x + 56, y + 224, num, RGB(255, 215, 130));
+    draw_text(x + 110, y + 224, "SEC", RGB(140, 175, 210));
+    draw_text(x, y + 242, "SHELL: ps / kill ID / resume ID", RGB(150, 180, 215));
+}
+
+static void draw_snake(Win *w) {
+    int ox = w->x + 16 + (w->w - 32 - SN_W * 16) / 2;
+    int oy = w->y + 52, i;
+    char num[12];
+    rect(w->x + 1, oy - 4, w->w - 2, 2, RGB(60, 110, 85));
+    rect(ox - 2, oy - 2, SN_W * 16 + 4, SN_H * 16 + 4, RGB(10, 34, 24));
+    frame(ox - 2, oy - 2, SN_W * 16 + 4, SN_H * 16 + 4, RGB(90, 190, 120));
+    for (i = 0; i <= SN_W; i++) rect(ox + i * 16, oy, 1, SN_H * 16, RGB(22, 52, 38));
+    for (i = 0; i <= SN_H; i++) rect(ox, oy + i * 16, SN_W * 16, 1, RGB(22, 52, 38));
+    rect(ox + snake_fx * 16 + 3, oy + snake_fy * 16 + 3, 10, 10, RGB(250, 90, 90));
+    for (i = 0; i < snake_len; i++)
+        rect(ox + snake_x[i] * 16 + 2, oy + snake_y[i] * 16 + 2, 12, 12,
+             i == 0 ? RGB(200, 255, 130) : RGB(70, 200, 110));
+    num_str(num, (u32)snake_score);
+    draw_text(w->x + 16, oy + SN_H * 16 + 8, "SCORE ", RGB(150, 210, 180));
+    draw_text(w->x + 64, oy + SN_H * 16 + 8, num, RGB(255, 220, 140));
+    draw_text(w->x + 130, oy + SN_H * 16 + 8, "BEST ", RGB(150, 210, 180));
+    num_str(num, (u32)snake_high);
+    draw_text(w->x + 178, oy + SN_H * 16 + 8, num, RGB(255, 220, 140));
+    if (snake_over)
+        draw_text2(w->x + 100, oy + 120, "GAME OVER - SPACE", RGB(255, 190, 150));
+    else if (!snake_run)
+        draw_text2(w->x + 112, oy + 120, "SPACE TO START", RGB(200, 235, 210));
+}
+
 static void window_content(Win *w) {
     int x = w->x + 16, y = w->y + 52;
     int sy = w->y + w->h - 24;
+    char buf_tmp[12];
 
     if (w->kind == 1) {
         draw_browser(w);
@@ -2152,7 +2499,8 @@ static void window_content(Win *w) {
         draw_text(x, y + 124,"TAB: LINK  ENTER: OPEN", RGB(165, 190, 225));
         draw_text(x, y + 140,"F1-F4 WINDOWS  F5 BROWSER", RGB(165, 190, 225));
         draw_text(x, y + 156,"OS OR F8: START MENU", RGB(165, 190, 225));
-        draw_text(x, y + 172,"F9 TERMINAL   F10 CALCULATOR", RGB(165, 190, 225));
+        draw_text(x, y + 156,"F9 SHELL  F10 CALC  F11 TASKS", RGB(165, 190, 225));
+        draw_text(x, y + 172,"F12 SNAKE  CTRL+S/O EDITOR", RGB(165, 190, 225));
     } else if (w == &wins[1]) {
         draw_text(x, y,      "SYSTEM INFORMATION", RGB(150, 205, 255));
         rect(x, y + 18, w->w - 32, 2, RGB(70, 80, 100));
@@ -2192,6 +2540,10 @@ static void window_content(Win *w) {
         draw_terminal(w);
     } else if (w == &wins[5]) {
         draw_calculator(w);
+    } else if (w == &wins[6]) {
+        draw_task_manager(w);
+    } else if (w == &wins[7]) {
+        draw_snake(w);
     } else {
         draw_text(x, y, "TYPE WITH THE KEYBOARD:", RGB(150, 230, 180));
         rect(x, y + 18, w->w - 32, 2, RGB(60, 120, 90));
@@ -2218,8 +2570,15 @@ static void window_content(Win *w) {
         draw_text(w->x + 10, sy, notes_status, RGB(120, 200, 150));
         draw_text(w->x + w->w - 178, sy, "CTRL+S / CTRL+O", RGB(160, 190, 225));
         draw_text(w->x + w->w - 70, sy, "READY", RGB(120, 200, 150));
+    } else if (w == &wins[6]) {
+        draw_text(w->x + 10, sy, "TASK MANAGER", RGB(120, 200, 220));
+        draw_text(w->x + w->w - 120, sy, "PS / KILL", RGB(160, 190, 225));
+    } else if (w == &wins[7]) {
+        draw_text(w->x + 10, sy, "SNAKE - ARROWS / SPACE", RGB(120, 220, 160));
+        num_str(buf_tmp, (u32)snake_score);
+        draw_text(w->x + w->w - 96, sy, buf_tmp, RGB(255, 215, 130));
     } else {
-        draw_text(w->x + 10, sy, "TINY OS gen0.4", RGB(120, 150, 185));
+        draw_text(w->x + 10, sy, "TINY OS gen0.5", RGB(120, 150, 185));
         draw_text(w->x + w->w - 132, sy, theme_name[wall], RGB(160, 190, 225));
         draw_text(w->x + w->w - 70, sy, "READY", RGB(120, 200, 150));
     }
@@ -2302,7 +2661,7 @@ static void draw_all(void) {
     }
 
     draw_text2((int)screen_w / 2 - 82, 46, "TINY OS", RGB(175, 220, 255));
-    draw_text((int)screen_w / 2 - 116, 68, "GRAPHICAL OS FOR QEMU  -  gen0.4", RGB(120, 160, 210));
+    draw_text((int)screen_w / 2 - 116, 68, "GRAPHICAL OS FOR QEMU  -  gen0.5", RGB(120, 160, 210));
     rect((int)screen_w / 2 - 130, 82, 260, 2, RGB(70, 130, 200));
 
     rect(0, (int)screen_h - 40, (int)screen_w, 40, RGB(24, 27, 34));
@@ -2344,7 +2703,7 @@ static void draw_all(void) {
             draw_text(x + 17, y + 6, menu_names[i], RGB(205, 215, 232));
         }
         rect(MENU_X + 6, my0 + MENU_H - 20, MENU_W - 12, 1, RGB(70, 82, 104));
-        draw_text(MENU_X + 8, my0 + MENU_H - 16, "TINY OS gen0.4", RGB(130, 160, 200));
+        draw_text(MENU_X + 8, my0 + MENU_H - 16, "TINY OS gen0.5", RGB(130, 160, 200));
         draw_text(MENU_X + MENU_W - 88, my0 + MENU_H - 16, theme_name[wall], RGB(180, 205, 235));
     }
 }
@@ -2488,9 +2847,9 @@ static int compute_hover(void) {
         if (mx >= nx && mx < nx + 16 && my >= cy && my < cy + 16) return idx * 4 + 1;
     }
     if (my >= (int)screen_h - 33 && my < (int)screen_h - 7) {
-        int bx = 108;
-        for (i = 0; i < WIN_N; i++, bx += 124)
-            if (mx >= bx && mx < bx + 116) return 100 + i;
+        int bx = TASK_X;
+        for (i = 0; i < WIN_N; i++, bx += TASK_STEP)
+            if (mx >= bx && mx < bx + TASK_W) return 100 + i;
     }
     return -1;
 }
@@ -2727,9 +3086,9 @@ static void mouse_packet(u8 *p) {
             }
         }
         if (my >= (int)screen_h - 33 && my < (int)screen_h - 7) {
-            int bx = 108;
-            for (i = 0; i < WIN_N; i++, bx += 124)
-                if (mx >= bx && mx < bx + 116) {
+            int bx = TASK_X;
+            for (i = 0; i < WIN_N; i++, bx += TASK_STEP)
+                if (mx >= bx && mx < bx + TASK_W) {
                     if (wins[i].open && wins[i].active && !wins[i].minimized) {
                         wins[i].minimized = 1;
                         wins[i].active = 0;
@@ -2934,6 +3293,17 @@ static void key_byte(u8 sc) {
         scene_dirty = 1;
         return;
     }
+    if (sc == 0x57) {                      /* F11: task manager */
+        activate(6);
+        scene_dirty = 1;
+        return;
+    }
+    if (sc == 0x58) {                      /* F12: snake */
+        activate(7);
+        if (!snake_run && !snake_over) snake_reset();
+        scene_dirty = 1;
+        return;
+    }
     if (wins[5].active && wins[5].open) {
         char cc = scmap[sc];
         if (cc >= 'A' && cc <= 'Z' && !shift_down) cc += 32;
@@ -3039,6 +3409,17 @@ static void key_byte(u8 sc) {
             }
             url_input[url_len] = 0;
             scene_dirty = 1;
+            return;
+        }
+    }
+
+    if (wins[7].active && wins[7].open) {
+        if (sc == 0x48 && snake_dir != 3) { snake_dir = 4; scene_dirty = 1; return; }
+        if (sc == 0x50 && snake_dir != 4) { snake_dir = 3; scene_dirty = 1; return; }
+        if (sc == 0x4B && snake_dir != 2) { snake_dir = 1; scene_dirty = 1; return; }
+        if (sc == 0x4D && snake_dir != 1) { snake_dir = 2; scene_dirty = 1; return; }
+        if (sc == 0x39) {                  /* Space: start / restart */
+            snake_reset();
             return;
         }
     }
@@ -3239,7 +3620,14 @@ void kernel_main(void) {
 
     idt_init();
     serial_init();
+    pit_prev2 = pit_read();
     cpu_detect();
+    klog_add("BOOT: TINY OS gen0.5");
+    klog_add("IDT: 32 EXCEPTION VECTORS");
+    klog_add("PIT: 1193182 Hz TIMEBASE");
+    klog_add("VESA: LINEAR FRAMEBUFFER");
+    klog_add("CPU: ");
+    klog_add(cpu_vendor);
     url_len = cstrlen(page_url);
     page_home();
     mouse_init();
@@ -3249,6 +3637,8 @@ void kernel_main(void) {
 
     for (;;) {
         ticks++;
+        timer_poll();
+        task_run();
         poll_input();
         read_clock();
         if (hh * 3600 + mm * 60 + ss != last_clock) {

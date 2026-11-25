@@ -611,6 +611,117 @@ def run_cmd(argv: list, timeout: int = 60) -> str:
     return text[:4000] if text else "Done."
 
 
+
+
+def fs_write(rel: str, encoded: str) -> str:
+    path = fs_path(rel)
+    if not os.path.basename(path):
+        return "Invalid file path."
+    data = encoded.replace("\\n", "\n")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(data)
+    return "Wrote %d bytes to %s" % (len(data.encode("utf-8")), rel or "/")
+
+
+def fs_touch(rel: str) -> str:
+    path = fs_path(rel)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a", encoding="utf-8"):
+        pass
+    return "Created %s" % rel
+
+
+def fs_remove(rel: str) -> str:
+    path = fs_path(rel)
+    if path == FS_ROOT:
+        return "Cannot remove the root directory."
+    if os.path.isdir(path):
+        shutil.rmtree(path, ignore_errors=True)
+    elif os.path.lexists(path):
+        os.unlink(path)
+    else:
+        return "Not found: %s" % rel
+    return "Removed %s" % rel
+
+
+def fs_move(src: str, dst: str) -> str:
+    a, b = fs_path(src), fs_path(dst)
+    if a == b or a == FS_ROOT:
+        return "Invalid move."
+    os.makedirs(os.path.dirname(b), exist_ok=True)
+    shutil.move(a, b)
+    return "Moved %s -> %s" % (src, dst)
+
+
+def fs_copy(src: str, dst: str) -> str:
+    a, b = fs_path(src), fs_path(dst)
+    if os.path.isdir(a):
+        shutil.copytree(a, b, dirs_exist_ok=True)
+    else:
+        os.makedirs(os.path.dirname(b), exist_ok=True)
+        shutil.copy2(a, b)
+    return "Copied %s -> %s" % (src, dst)
+
+
+def fs_walk(rel: str):
+    root = fs_path(rel)
+    files, dirs, total = 0, 0, 0
+    for base, dnames, fnames in os.walk(root):
+        dirs += len(dnames)
+        for name in fnames:
+            try:
+                total += os.path.getsize(os.path.join(base, name))
+                files += 1
+            except OSError:
+                pass
+    return files, dirs, total
+
+
+def fs_du(rel: str) -> str:
+    files, dirs, total = fs_walk(rel)
+    return ("%s: %d files, %d directories, %d bytes (%.1f KiB)"
+            % (rel or "/", files, dirs, total, total / 1024.0))
+
+
+def fs_tree(rel: str) -> str:
+    root = fs_path(rel)
+    lines = []
+    for base, dnames, fnames in os.walk(root):
+        depth = os.path.relpath(base, root).count(os.sep)
+        if depth >= 4:
+            dnames[:] = []
+            continue
+        indent = "  " * depth
+        for name in sorted(dnames)[:40]:
+            lines.append(indent + name + "/")
+        for name in sorted(fnames)[:40]:
+            lines.append(indent + name)
+        if len(lines) > 150:
+            break
+    return "\n".join(lines[:150]) if lines else "(empty)"
+
+
+def fs_lines(rel: str, tail: bool = False) -> str:
+    path = fs_path(rel)
+    if not os.path.isfile(path):
+        return "Not a file: %s" % rel
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        lines = fh.read(20000).splitlines()
+    chosen = lines[-12:] if tail else lines[:12]
+    return "\n".join(chosen) if chosen else "(empty)"
+
+
+def fs_wc(rel: str) -> str:
+    path = fs_path(rel)
+    if not os.path.isfile(path):
+        return "Not a file: %s" % rel
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        text = fh.read(200000)
+    return "%s: %d lines, %d words, %d bytes" % (
+        rel, len(text.splitlines()), len(text.split()), len(text.encode("utf-8")))
+
+
 def git_repo_path(rel: str):
     """Return the host path only if it is itself a git repository root."""
     try:
@@ -715,6 +826,26 @@ def shell_command(line: str) -> str:
         return fs_mkdir(arg)
     if cmd == "FSEXIST":
         return "YES" if os.path.exists(fs_path(arg)) else "NO"
+    if cmd == "FSWRITE":
+        return fs_write(arg, " ".join(parts[2:]))
+    if cmd == "FSTOUCH":
+        return fs_touch(arg)
+    if cmd == "FSRM":
+        return fs_remove(arg)
+    if cmd == "FSMV":
+        return fs_move(arg, parts[2] if len(parts) > 2 else "")
+    if cmd == "FSCP":
+        return fs_copy(arg, parts[2] if len(parts) > 2 else "")
+    if cmd == "FSDU":
+        return fs_du(arg)
+    if cmd == "FSTREE":
+        return fs_tree(arg)
+    if cmd == "FSHEAD":
+        return fs_lines(arg)
+    if cmd == "FSTAIL":
+        return fs_lines(arg, True)
+    if cmd == "FSWC":
+        return fs_wc(arg)
     if cmd == "GITCLONE":
         return git_clone(" ".join(parts[1:]))
     if cmd == "GITSTATUS":
@@ -786,7 +917,9 @@ def serve_one(conn: socket.socket) -> None:
             host_commands = (
                 "PKGLIST", "PKGINSTALL", "PKGUNINSTALL", "PIPINSTALL",
                 "PIPUNINSTALL", "PIPSHOW", "FSLIST", "FSCAT", "FSMKDIR",
-                "FSEXIST", "GITCLONE", "GITSTATUS", "GITLOG",
+                "FSEXIST", "FSWRITE", "FSTOUCH", "FSRM", "FSMV", "FSCP",
+                "FSDU", "FSTREE", "FSHEAD", "FSTAIL", "FSWC",
+                "GITCLONE", "GITSTATUS", "GITLOG",
                 "APTUPDATE", "APTSEARCH", "APTINFO", "APTINSTALL",
                 "APTREMOVE", "APTLIST", "APTFILES", "APTUPGRADE",
                 "APTCLEAN", "WHICH", "EXEC", "EXECCD",
