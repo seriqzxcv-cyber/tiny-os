@@ -7,7 +7,7 @@
 ## 1. Описание репозитория (About / Repository description)
 
 ```
-Графическая ОС с нуля: 16-битный загрузчик + 32-битное ядро, VESA 1024x768, окна, мышь, интернет-браузер с закладками, планировщик задач, текстовый редактор, игра SNAKE и терминал с RPM-пакетами, pip, git, архивами и сетевыми утилитами. Загружается в QEMU.
+Графическая ОС с нуля: 16-битный загрузчик + 32-битное ядро, VESA 1024x768, окна, мышь, интернет-браузер с закладками и историей, планировщик задач, текстовый редактор, игра SNAKE и терминал с RPM-пакетами, pip, git, архивами и сетевыми утилитами. Загружается в QEMU.
 ```
 
 Короткий вариант (до 100 символов):
@@ -69,6 +69,11 @@ gen0.5:
   zero the kernel BSS and make the ISO copy overlap-safe
 - Enlarge the taskbar to eight windows and fix the window/menu hover IDs
 
+gen0.7:
+- Add chmod/chown and show file mode/owner in ls
+- Add apt hold/unhold/depends/download/cache and pip freeze
+- Add browser visit history page (Ctrl+H) and in-page find (Ctrl+F)
+
 gen0.6:
 - Add stat, hardlink, reflink, sync, tar/zip archive tools and local imports
 - Add browser bookmarks, page caching and forced reload
@@ -99,31 +104,25 @@ Add bootable ISO, internet browser and lag-free mouse rendering
 ## 4. Release notes (для Releases)
 
 ~~~markdown
-## TINY OS gen0.6
+## TINY OS gen0.7
 
 Графическая ОС, которую можно загрузить в QEMU.
-Образ диска занимает 71 168 байт, ISO — 471 040 байт.
+Образ диска занимает 73 728 байт, ISO — 473 088 байт.
 
 ### Что нового
-- **Файловая система**: `stat`, `hardlink`, `reflink`, `sync`, распаковка
-  архивов `tarx/tarl` и `zipx/zipl`, импорт локальных Python-пакетов
-  и системных бинарников.
-- **Браузер**: закладки (`Ctrl+D` добавить, `Ctrl+B` открыть, `bookmark`
-  в терминале), кэш страниц (`cache list`, `cache clear`) и настоящая
-  перезагрузка страницы через `Ctrl+R`.
-- **Сеть**: `ping HOST`, `dns HOST`, `ipconfig`, `netstat`, `wget URL`
-  через хост-помощника.
-- **Пользователи**: `users`, `logname`; системные программы запускаются
-  с `sudo`, если оно доступно на хосте.
-- **Исправление загрузки**: VESA-буфер перенёсся из `0x20000` в `0x8000`.
-  При выросшем ядре он перекрывал таблицу сканкодов `scmap` и ломал
-  клавиатуру.
-- Сохранены все возможности gen0.5: задачи, SNAKE, звук, редактор,
-  IDT/panic, настоящие RPM-пакеты и pip.
+- **Права доступа**: `chmod OCTAL FILE`, `chown USER FILE`; `ls` показывает
+  режим и владельца файла.
+- **Менеджер пакетов**: `apt hold/unhold`, `apt depends NAME`,
+  `apt download NAME` (только скачать RPM), `apt cache`, `pip freeze`.
+- **Браузер**: `Ctrl+H` открывает страницу истории посещений, `Ctrl+F`
+  ищет текст на загруженной странице и прокручивает к найденной строке.
+- Сохранены все возможности gen0.6: архивы, закладки, кэш страниц,
+  ping/dns/ipconfig/netstat/wget, задачи, SNAKE, редактор, IDT/panic,
+  настоящие RPM-пакеты и pip.
 
 ### Файлы
-- `os.img` — загрузочный raw-образ диска (71 168 байт)
-- `tinyos.iso` — загрузочный ISO (El Torito, no emulation, 471 040 байт)
+- `os.img` — загрузочный raw-образ диска (73 728 байт)
+- `tinyos.iso` — загрузочный ISO (El Torito, no emulation, 473 088 байт)
 - `run.sh` — запуск с интернетом (поднимает `nethelper.py`)
 
 ### Запуск
@@ -256,7 +255,7 @@ git push -u origin main
 ### Шаг 8. Создайте Release и приложите образы
 
 1. Нажмите **Releases → Create a new release**.
-2. Tag: `gen0.6`, Title: `TINY OS gen0.6`.
+2. Tag: `gen0.7`, Title: `TINY OS gen0.7`.
 3. В поле описания вставьте release notes из раздела 4.
 4. Перетащите вниз в блок **Attach binaries**: `tinyos.iso`, `os.img`, `screenshot.png`.
 5. Нажмите **Publish release**.

@@ -30,6 +30,8 @@ PAGE_CACHE: dict = {}
 BASE = os.path.dirname(os.path.abspath(__file__))
 PKG_DB = os.path.join(BASE, "installed_packages.json")
 APT_DB = os.path.join(BASE, "apt_installed.json")
+HELD_DB = os.path.join(BASE, "apt_held.json")
+FSMETA = os.path.join(BASE, "fs_meta.json")
 PKG_CACHE = os.path.join(BASE, "pkg_cache")
 FS_ROOT = os.path.join(BASE, "tinyos_fs")
 SITE_DIR = os.path.join(FS_ROOT, "site-packages")
@@ -578,10 +580,17 @@ def fs_list(rel: str) -> str:
     lines = []
     for name in sorted(os.listdir(path))[:200]:
         full = os.path.join(path, name)
+        meta = meta_load().get(os.path.relpath(full, FS_ROOT), {})
+        owner = meta.get("owner", "-")
+        try:
+            mode = format(os.stat(full).st_mode & 0o777, "04o")
+        except OSError:
+            mode = "?"
         if os.path.isdir(full):
-            lines.append("d  %s/" % name)
+            lines.append("d %s %-8s %s/" % (mode, owner, name))
         else:
-            lines.append("f  %s  %d bytes" % (name, os.path.getsize(full)))
+            lines.append("- %s %-8s %s  %d bytes" %
+                         (mode, owner, name, os.path.getsize(full)))
     return "\n".join(lines) if lines else "(empty directory)"
 
 
@@ -910,6 +919,109 @@ def logname() -> str:
     rc, out = run_host(["whoami"], 10)
     return out.strip() or "(no user)"
 
+
+def meta_load() -> dict:
+    try:
+        with open(FSMETA, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def meta_save(db: dict) -> None:
+    with open(FSMETA, "w", encoding="utf-8") as fh:
+        json.dump(db, fh, indent=2, sort_keys=True)
+
+
+def fs_chmod(rel: str, mode: str) -> str:
+    if not re.fullmatch(r"[0-7]{3,4}", mode or ""):
+        return "usage: chmod OCTAL PATH"
+    path = fs_path(rel)
+    if not os.path.lexists(path):
+        return "Not found: %s" % rel
+    value = int(mode, 8)
+    os.chmod(path, value)
+    return "Mode of %s set to %s" % (rel, format(value & 0o777, "04o"))
+
+
+def fs_chown(rel: str, owner: str) -> str:
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,32}", owner or ""):
+        return "Invalid owner."
+    path = fs_path(rel)
+    if not os.path.lexists(path):
+        return "Not found: %s" % rel
+    db = meta_load()
+    db[rel.strip("/")] = {"owner": owner}
+    meta_save(db)
+    return "Owner of %s set to %s" % (rel, owner)
+
+
+def held_load() -> list:
+    try:
+        with open(HELD_DB, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def held_save(items: list) -> None:
+    with open(HELD_DB, "w", encoding="utf-8") as fh:
+        json.dump(items, fh, indent=2)
+
+
+def apt_hold(names: list) -> str:
+    held = held_load()
+    for name in names:
+        if name not in held:
+            held.append(name)
+    held_save(held)
+    return "Held: " + ", ".join(names)
+
+
+def apt_unhold(names: list) -> str:
+    held = held_load()
+    removed = [n for n in names if n in held]
+    held_save([x for x in held if x not in names])
+    return "Unheld: " + ", ".join(removed) if removed else "No held packages matched."
+
+
+def apt_depends(name: str) -> str:
+    rc, out = run_host(["dnf", "-q", "repoquery", "--requires", name], 60)
+    if rc == 127:
+        return out
+    return wrap_text(out[:2500], 78, 2500) or "No dependencies found."
+
+
+def apt_download_only(names: list) -> str:
+    if not names:
+        return "usage: apt download NAME [NAME...]"
+    os.makedirs(PKG_CACHE, exist_ok=True)
+    tmp = tempfile.mkdtemp(prefix="dl-", dir=PKG_CACHE)
+    try:
+        rc, out = run_host(["dnf", "-q", "-y", "download", "--resolve",
+                            "--destdir", tmp] + names, 300)
+        files = sorted(f for f in os.listdir(tmp) if f.endswith(".rpm"))
+        if files:
+            return "Downloaded %d RPM files\n%s" % (len(files), "\n".join(files[:40]))
+        return wrap_text(out[:800], 78, 800)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def apt_cache_list() -> str:
+    if not os.path.isdir(PKG_CACHE):
+        return "Package cache is empty."
+    files = [f for f in os.listdir(PKG_CACHE) if f.endswith(".rpm")]
+    return "\\n".join(files[:60]) if files else "Package cache is empty."
+
+
+def pip_freeze() -> str:
+    db = pkg_load()
+    return "\\n".join("%s==%s" % (name, data.get("version", "?"))
+                      for name, data in sorted(db.items())) or "No Python packages installed."
+
 def git_repo_path(rel: str):
     """Return the host path only if it is itself a git repository root."""
     try:
@@ -1074,6 +1186,22 @@ def shell_command(line: str) -> str:
         return users_list()
     if cmd == "LOYNAME":
         return logname()
+    if cmd == "CHMOD":
+        return fs_chmod(parts[2] if len(parts) > 2 else "", arg)
+    if cmd == "CHOWN":
+        return fs_chown(parts[2] if len(parts) > 2 else "", arg)
+    if cmd == "APTHOLD":
+        return apt_hold(parts[1:])
+    if cmd == "APTUNHOLD":
+        return apt_unhold(parts[1:])
+    if cmd == "APTDEPENDS":
+        return apt_depends(arg)
+    if cmd == "APTDOWNLOAD":
+        return apt_download_only(parts[1:])
+    if cmd == "APTCACHE":
+        return apt_cache_list()
+    if cmd == "PIPFREEZE":
+        return pip_freeze()
     if cmd == "PING":
         return net_ping(arg)
     if cmd == "DNS":
@@ -1151,6 +1279,8 @@ def serve_one(conn: socket.socket) -> None:
                 "USERS", "LOYNAME",
                 "PING", "DNS", "IPCONFIG", "NETSTAT", "WGET",
                 "CACHECLEAR", "CACHELIST",
+                "CHMOD", "CHOWN", "APTHOLD", "APTUNHOLD", "APTDEPENDS",
+                "APTDOWNLOAD", "APTCACHE", "PIPFREEZE",
                 "GITCLONE", "GITSTATUS", "GITLOG",
                 "APTUPDATE", "APTSEARCH", "APTINFO", "APTINSTALL",
                 "APTREMOVE", "APTLIST", "APTFILES", "APTUPGRADE",

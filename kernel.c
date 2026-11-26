@@ -287,8 +287,14 @@ static int ctrl_down = 0;
 static int shift_down = 0;
 static int alt_down = 0;
 static int link_focus = -1;            /* keyboard-focused link in the browser */
+#define URL_HIST 20
+static char url_hist[URL_HIST][200];
+static int url_hist_count = 0;
+static int search_active = 0;
+static char search_query[64] = "";
 static int mp_need = 3;
 
+static int scene_dirty;
 static void compose_full(void);
 static int fetch_page(const char *url);
 static void term_catn(char *dst, const char *a, const char *b, int sz);
@@ -515,6 +521,59 @@ static void page_bookmarks(void) {
     url_pos = url_len;
 }
 
+static void page_history(void) {
+    static const char head[] = "<h1>HISTORY</h1><p>Visited pages.</p><hr><ul>";
+    static const char tail[] = "</ul><hr><p>Ctrl+H returns here.</p>";
+    int i, j = 0, k;
+    for (i = 0; head[i]; i++) PAGE_BUF[j++] = head[i];
+    for (i = 0; i < url_hist_count; i++) {
+        const char a[] = "<li><a href=\"";
+        const char b[] = "\">";
+        const char c[] = "</a></li>";
+        for (k = 0; a[k]; k++) PAGE_BUF[j++] = a[k];
+        for (k = 0; url_hist[i][k]; k++) PAGE_BUF[j++] = url_hist[i][k];
+        for (k = 0; b[k]; k++) PAGE_BUF[j++] = b[k];
+        for (k = 0; url_hist[i][k]; k++) PAGE_BUF[j++] = url_hist[i][k];
+        for (k = 0; c[k]; k++) PAGE_BUF[j++] = c[k];
+    }
+    for (i = 0; tail[i]; i++) PAGE_BUF[j++] = tail[i];
+    PAGE_BUF[j] = 0;
+    page_len = (u32)j;
+    page_scroll = 0;
+    cstr_copy(page_title, "HISTORY", sizeof(page_title));
+    cstr_copy(status_msg, "HISTORY", sizeof(status_msg));
+    link_focus = -1;
+    cstr_copy(url_input, page_url, sizeof(url_input));
+    url_len = cstrlen(url_input);
+    url_pos = url_len;
+}
+
+static void page_find(const char *q) {
+    char line[400];
+    int li = 0, i = 0, j = 0, qlen = cstrlen(q);
+    if (!qlen) { cstr_copy(status_msg, "EMPTY QUERY", sizeof(status_msg)); return; }
+    while (PAGE_BUF[i]) {
+        j = 0;
+        while (PAGE_BUF[i] && PAGE_BUF[i] != '\n' && j < 399) line[j++] = PAGE_BUF[i++];
+        line[j] = 0;
+        if (PAGE_BUF[i] == '\n') i++;
+        for (j = 0; line[j] && q[j]; j++) {
+            char a = line[j], b = q[j];
+            if (a >= 'A' && a <= 'Z') a += 32;
+            if (b >= 'A' && b <= 'Z') b += 32;
+            if (a != b) break;
+        }
+        if (q[j] == 0 && line[j] != 0) {
+            page_scroll = li;
+            cstr_copy(status_msg, "FOUND", sizeof(status_msg));
+            scene_dirty = 1;
+            return;
+        }
+        li++;
+    }
+    cstr_copy(status_msg, "NOT FOUND", sizeof(status_msg));
+}
+
 static void page_home(void) {
     static const char home[] =
         "<h1>TINY BROWSER</h1>"
@@ -583,10 +642,26 @@ static int prepare_url(const char *u, char *out, int sz) {
     return has_space;
 }
 
+static void hist_push(const char *url) {
+    int i;
+    if (!url[0]) return;
+    for (i = 0; i < url_hist_count; i++)
+        if (term_streq(url_hist[i], url)) return;
+    if (url_hist_count < URL_HIST) {
+        cstr_copy(url_hist[url_hist_count], url, 200);
+        url_hist_count++;
+    } else {
+        for (i = 0; i < URL_HIST - 1; i++)
+            cstr_copy(url_hist[i], url_hist[i + 1], 200);
+        cstr_copy(url_hist[URL_HIST - 1], url, 200);
+    }
+}
+
 static void navigate(const char *u) {
     int i;
     char full[200];
     link_focus = -1;
+    search_active = 0;
     nlinks = 0;
     if (page_url[0]) {
         for (i = 0; page_url[i]; i++) prev_url[i] = page_url[i];
@@ -595,6 +670,7 @@ static void navigate(const char *u) {
     }
     next_valid = 0;
     prepare_url(u, full, sizeof(full));
+    hist_push(full);
     url_set(full);
     page_title[0] = 0;
     fetch_page(page_url);
@@ -2057,12 +2133,14 @@ static void term_exec(void) {
         term_print("  pipinstalllocal NAME / installbin HOST [DIR] / sudo CMD");
         term_print("NET: ping HOST / dns HOST / ipconfig / netstat / wget URL");
         term_print("  cache clear / cache list / bookmark [URL]");
+        term_print("PERMS: chmod OCTAL FILE / chown USER FILE");
+        term_print("PKG: apt hold/unhold/depends/download/cache, pip freeze");
         term_print("  ps kill ID resume ID which beep play stop history");
         term_print("APPS: calc top snake panic  (Up/Down history, PgUp/PgDn)");
     } else if (term_streq(argv[0], "clear")) {
         term_head = 0; term_count = 0;
     } else if (term_streq(argv[0], "ver")) {
-        term_print("TINY OS gen0.6  /  TINY SHELL 1.3");
+        term_print("TINY OS gen0.7  /  TINY SHELL 1.3");
     } else if (term_streq(argv[0], "date")) {
         buf[0] = (char)('0' + dd_day / 10);
         buf[1] = (char)('0' + dd_day % 10);
@@ -2089,7 +2167,7 @@ static void term_exec(void) {
         term_catn(buf, buf, " SEC", sizeof(buf));
         term_print(buf);
     } else if (term_streq(argv[0], "uname")) {
-        term_print("TINY OS gen0.6 i386 / 32-BIT KERNEL / IDT / TASKS");
+        term_print("TINY OS gen0.7 i386 / 32-BIT KERNEL / IDT / TASKS");
     } else if (term_streq(argv[0], "history")) {
         for (i = 0; i < term_hist_count; i++) {
             char nb[8];
@@ -2273,6 +2351,29 @@ static void term_exec(void) {
             if (argc < 2) { term_print("usage: wget URL"); }
             else { cstr_copy(buf, "WGET ", sizeof(buf)); for (i = 1; i < argc; i++) { term_catn(buf, buf, " ", sizeof(buf)); term_catn(buf, buf, argv[i], sizeof(buf)); } term_host(buf, 1); }
         } else term_host(verb, 1);
+    } else if (term_streq(argv[0], "chmod") || term_streq(argv[0], "chown")) {
+        if (argc < 3) { term_print("usage: chmod OCTAL FILE / chown USER FILE"); }
+        else {
+            cstr_copy(buf, term_streq(argv[0], "chmod") ? "CHMOD " : "CHOWN ", sizeof(buf));
+            term_catn(buf, buf, argv[1], sizeof(buf));
+            term_catn(buf, buf, " ", sizeof(buf));
+            term_path(path, argv[2]);
+            term_catn(buf, buf, path, sizeof(buf));
+            term_host(buf, 1);
+        }
+    } else if (term_streq(argv[0], "pip") && argc >= 2 && term_streq(argv[1], "freeze")) {
+        term_host("PIPFREEZE", 1);
+    } else if (term_streq(argv[0], "apt") && argc >= 2 &&
+               (term_streq(argv[1], "hold") || term_streq(argv[1], "unhold") ||
+                term_streq(argv[1], "depends") || term_streq(argv[1], "download") ||
+                term_streq(argv[1], "cache"))) {
+        const char *verb = term_streq(argv[1], "hold") ? "APTHOLD" :
+                           term_streq(argv[1], "unhold") ? "APTUNHOLD" :
+                           term_streq(argv[1], "depends") ? "APTDEPENDS" :
+                           term_streq(argv[1], "download") ? "APTDOWNLOAD" : "APTCACHE";
+        cstr_copy(buf, verb, sizeof(buf));
+        for (i = 2; i < argc; i++) { term_catn(buf, buf, " ", sizeof(buf)); term_catn(buf, buf, argv[i], sizeof(buf)); }
+        term_host(buf, 1);
     } else if (term_streq(argv[0], "bookmark")) {
         if (argc < 2) {
             for (i = 0; i < bm_count; i++) {
@@ -2718,7 +2819,7 @@ static void window_content(Win *w) {
         num_str(buf_tmp, (u32)snake_score);
         draw_text(w->x + w->w - 96, sy, buf_tmp, RGB(255, 215, 130));
     } else {
-        draw_text(w->x + 10, sy, "TINY OS gen0.6", RGB(120, 150, 185));
+        draw_text(w->x + 10, sy, "TINY OS gen0.7", RGB(120, 150, 185));
         draw_text(w->x + w->w - 132, sy, theme_name[wall], RGB(160, 190, 225));
         draw_text(w->x + w->w - 70, sy, "READY", RGB(120, 200, 150));
     }
@@ -2801,7 +2902,7 @@ static void draw_all(void) {
     }
 
     draw_text2((int)screen_w / 2 - 82, 46, "TINY OS", RGB(175, 220, 255));
-    draw_text((int)screen_w / 2 - 116, 68, "GRAPHICAL OS FOR QEMU  -  gen0.6", RGB(120, 160, 210));
+    draw_text((int)screen_w / 2 - 116, 68, "GRAPHICAL OS FOR QEMU  -  gen0.7", RGB(120, 160, 210));
     rect((int)screen_w / 2 - 130, 82, 260, 2, RGB(70, 130, 200));
 
     rect(0, (int)screen_h - 40, (int)screen_w, 40, RGB(24, 27, 34));
@@ -2843,7 +2944,7 @@ static void draw_all(void) {
             draw_text(x + 17, y + 6, menu_names[i], RGB(205, 215, 232));
         }
         rect(MENU_X + 6, my0 + MENU_H - 20, MENU_W - 12, 1, RGB(70, 82, 104));
-        draw_text(MENU_X + 8, my0 + MENU_H - 16, "TINY OS gen0.6", RGB(130, 160, 200));
+        draw_text(MENU_X + 8, my0 + MENU_H - 16, "TINY OS gen0.7", RGB(130, 160, 200));
         draw_text(MENU_X + MENU_W - 88, my0 + MENU_H - 16, theme_name[wall], RGB(180, 205, 235));
     }
 }
@@ -3373,6 +3474,18 @@ static void key_byte(u8 sc) {
         scene_dirty = 1;
         return;
     }
+    if (ctrl_down && sc == 0x23) {          /* Ctrl+H: history page */
+        activate(3); page_history(); scene_dirty = 1; return;
+    }
+    if (ctrl_down && sc == 0x21) {          /* Ctrl+F: find in page */
+        if (wins[3].open && wins[3].active) {
+            search_active = 1;
+            url_input[0] = 0; url_len = 0; url_pos = 0;
+            cstr_copy(status_msg, "FIND: TYPE QUERY + ENTER", sizeof(status_msg));
+            scene_dirty = 1;
+        }
+        return;
+    }
     if (ctrl_down && sc == 0x4B) {          /* Ctrl+Left: history back */
         go_back(); scene_dirty = 1; return;
     }
@@ -3523,6 +3636,11 @@ static void key_byte(u8 sc) {
                 cstr_copy(full, links[link_focus].url, sizeof(full));
                 link_focus = -1;
                 navigate(full);
+            } else if (search_active) {
+                cstr_copy(search_query, url_input, sizeof(search_query));
+                page_find(search_query);
+                search_active = 0;
+                url_input[0] = 0; url_len = 0; url_pos = 0;
             } else {
                 navigate(url_input);
             }
@@ -3776,7 +3894,7 @@ void kernel_main(void) {
     serial_init();
     pit_prev2 = pit_read();
     cpu_detect();
-    klog_add("BOOT: TINY OS gen0.6");
+    klog_add("BOOT: TINY OS gen0.7");
     klog_add("IDT: 32 EXCEPTION VECTORS");
     klog_add("PIT: 1193182 Hz TIMEBASE");
     klog_add("VESA: LINEAR FRAMEBUFFER");

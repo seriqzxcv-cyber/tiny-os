@@ -8,3 +8,5 @@ installed_packages.json
 tinyos_fs/
 apt_installed.json
 pkg_cache/
+apt_held.json
+fs_meta.json
